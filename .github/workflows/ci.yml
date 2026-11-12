@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The job name is the status check context referenced by the `main` ruleset.
+  # Renaming it silently detaches the required check — update the ruleset too.
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Format
+        run: npm run format:check
+
+      # Warnings do not fail the build; see AGENTS.md on the two deliberately
+      # ignored sentence-case warnings.
+      - name: Lint
+        run: npm run lint
+
+      # `build` runs `tsc -noEmit` first, so this is the typecheck as well.
+      - name: Build
+        run: npm run build

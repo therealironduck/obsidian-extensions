@@ -1,0 +1,132 @@
+name: Release
+
+# Manually triggered. Derives the next version from Conventional Commits since
+# the last tag, bumps the Obsidian manifest, builds, tags and publishes.
+#
+# The tag is the bare version with no `v` prefix: Obsidian's community catalog
+# requires that, and BRAT resolves releases the same way.
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Bump level (auto = derive from Conventional Commits)
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  # Never interrupt a run that may already have tagged and pushed.
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # workflow_dispatch can be fired from any ref; releasing a feature branch
+      # would tag a commit that is not on main.
+      - name: Guard - release only from main
+        run: test "${{ github.ref }}" = refs/heads/main
+
+      - uses: actions/checkout@v7
+        with:
+          # Full history and tags: the bump tool measures commits since the
+          # most recent tag.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Deliberately before any mutation. The bundle does not embed the version
+      # (static banner, no `define` in esbuild.config.mjs), so building first is
+      # free and means a broken build fails before anything is bumped or tagged.
+      - name: Verify and build
+        run: |
+          set -euo pipefail
+          npm run format:check
+          npm run lint
+          npm run build
+          test -s main.js
+          test -s manifest.json
+          test -s styles.css
+
+      - name: Determine release type
+        id: bump
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.release_type }}" != auto ]; then
+            LEVEL="${{ inputs.release_type }}"
+          else
+            LEVEL="$(npx --no-install conventional-recommended-bump -p conventionalcommits)"
+          fi
+          # The preset prints nothing when every commit since the last tag is a
+          # hidden type (chore, docs, ci, refactor, style, test, build).
+          if [ -z "$LEVEL" ]; then
+            echo "::error::No releasable commits since the last tag. Re-run with an explicit release_type to force one."
+            exit 1
+          fi
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+
+      # One bump. `npm version` runs the `version` lifecycle script even with
+      # --no-git-tag-version, so version-bump.mjs syncs manifest.json and
+      # versions.json with the correct npm_package_version. Do not also invoke
+      # version-bump.mjs by hand: with an empty variable it writes an undefined
+      # version and a literal "undefined" key into versions.json.
+      - name: Bump version
+        id: v
+        run: |
+          set -euo pipefail
+          npm version "${{ steps.bump.outputs.level }}" --no-git-tag-version
+          # Read from package.json, not from `npm version` stdout, which
+          # carries the `v` prefix from tag-version-prefix.
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Assert version consistency
+        run: |
+          set -euo pipefail
+          V='${{ steps.v.outputs.version }}'
+          test "$(node -p "require('./manifest.json').version")" = "$V"
+          node -e 'const v=process.argv[1];const m=require("./manifest.json");if(require("./versions.json")[v]!==m.minAppVersion)throw new Error("versions.json missing "+v)' "$V"
+          if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
+            echo "::error::tag $V already exists"
+            exit 1
+          fi
+
+      - name: Commit, tag and push
+        run: |
+          set -euo pipefail
+          V='${{ steps.v.outputs.version }}'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # npm version rewrites the lockfile too, which the `version` script
+          # does not stage.
+          git add package.json package-lock.json manifest.json versions.json
+          git commit -m "chore(release): $V"
+          git tag -a "$V" -m "$V"
+          # Pushing to a PR-protected main works because the ruleset grants the
+          # GitHub Actions app (id 15368) bypass. See AGENTS.md.
+          git push origin HEAD:main
+          git push origin "refs/tags/$V"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          tag_name: ${{ steps.v.outputs.version }}
+          name: ${{ steps.v.outputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          make_latest: true
+          # A release missing an asset installs as a broken plugin.
+          fail_on_unmatched_files: true
+          files: |
+            main.js
+            manifest.json
+            styles.css
