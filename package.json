@@ -1,6 +1,6 @@
 {
 	"name": "jordans-extensions",
-	"version": "1.0.1",
+	"version": "1.1.0",
 	"description": "Jordan's own vault tweaks in one plugin: panels, Slack copy and unlink at cursor",
 	"keywords": [],
 	"license": "0-BSD",
