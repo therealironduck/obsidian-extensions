@@ -1,0 +1,10 @@
+{
+	"id": "jordans-extensions",
+	"name": "Jordans Extensions",
+	"version": "1.0.0",
+	"minAppVersion": "1.4.0",
+	"description": "Jordan's own vault tweaks in one plugin: panels, Slack copy and unlink at cursor",
+	"author": "Jordan Kniest",
+	"authorUrl": "https://github.com/jkniest",
+	"isDesktopOnly": true
+}

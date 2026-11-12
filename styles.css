@@ -1,0 +1,209 @@
+/*
+ * Panels.
+ *
+ * A panel is never a single element: in live preview it is a stack of
+ * `.cm-line` divs and in reading view a stack of section divs. Both are
+ * tagged with the same role classes, so one set of rules fakes a continuous
+ * box out of either: background and side borders on every line, top border
+ * and radius on the first, bottom border and radius on the last. Because
+ * neither stack has gaps between its items, the side borders line up into one
+ * unbroken edge.
+ *
+ * Spacing inside the box is always padding, never margin: CodeMirror builds
+ * its height map from offsetHeight, which excludes margins, and a margin here
+ * desynchronises that map and causes scroll jumps.
+ */
+
+.panel-line {
+	--panel-accent: var(--background-modifier-border);
+	--panel-bg: var(--background-secondary);
+	--panel-edge: 3px;
+
+	background-color: var(--panel-bg);
+	border-left: var(--panel-edge) solid var(--panel-accent);
+	border-right: 1px solid var(--background-modifier-border);
+	padding-left: var(--size-4-3);
+	padding-right: var(--size-4-3);
+}
+
+.panel-head {
+	border-top: 1px solid var(--background-modifier-border);
+	border-top-left-radius: var(--radius-m);
+	border-top-right-radius: var(--radius-m);
+	padding-top: var(--size-4-2);
+}
+
+.panel-foot {
+	border-bottom: 1px solid var(--background-modifier-border);
+	border-bottom-left-radius: var(--radius-m);
+	border-bottom-right-radius: var(--radius-m);
+	padding-bottom: var(--size-4-2);
+}
+
+/* A panel whose closing ::: is missing, flagged while it is being typed. */
+.panel-unclosed {
+	border-left-style: dashed;
+	border-left-color: var(--color-red);
+}
+
+/* Variants. These come after the defaults so they win at equal specificity. */
+.panel-v-info {
+	--panel-accent: var(--color-blue);
+	--panel-bg: rgba(var(--color-blue-rgb), 0.06);
+}
+
+.panel-v-tip {
+	--panel-accent: var(--color-cyan);
+	--panel-bg: rgba(var(--color-cyan-rgb), 0.06);
+}
+
+.panel-v-success {
+	--panel-accent: var(--color-green);
+	--panel-bg: rgba(var(--color-green-rgb), 0.06);
+}
+
+.panel-v-warning {
+	--panel-accent: var(--color-orange);
+	--panel-bg: rgba(var(--color-orange-rgb), 0.06);
+}
+
+.panel-v-danger {
+	--panel-accent: var(--color-red);
+	--panel-bg: rgba(var(--color-red-rgb), 0.06);
+}
+
+.panel-v-note {
+	--panel-accent: var(--color-purple);
+	--panel-bg: rgba(var(--color-purple-rgb), 0.06);
+}
+
+.panel-v-quote {
+	--panel-accent: var(--text-muted);
+	--panel-bg: var(--background-secondary);
+}
+
+/* Nesting: step the inner box in rather than trying to draw it inside. */
+.panel-depth-1 {
+	padding-left: calc(var(--size-4-3) * 2);
+}
+
+.panel-depth-2 {
+	padding-left: calc(var(--size-4-3) * 3);
+}
+
+.panel-depth-3 {
+	padding-left: calc(var(--size-4-3) * 4);
+}
+
+/* The header, shared by both views. */
+.panel-header {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	font-weight: var(--font-semibold);
+	color: var(--panel-accent);
+}
+
+.panel-header-icon,
+.panel-fold {
+	display: inline-flex;
+	align-items: center;
+}
+
+.panel-header-icon .svg-icon,
+.panel-fold .svg-icon {
+	width: 1em;
+	height: 1em;
+}
+
+.panel-header.is-collapsible {
+	cursor: var(--cursor-link);
+}
+
+.panel-fold {
+	color: var(--text-muted);
+	transition: transform 100ms ease-in-out;
+}
+
+.panel-hidden {
+	display: none !important;
+}
+
+/* ---------------------------------------------------------------- *
+ * Live preview                                                      *
+ * ---------------------------------------------------------------- */
+
+/*
+ * Scoped to beat Obsidian's own .cm-line padding. The closing ::: line has
+ * its text replaced away, so it is collapsed down to the box's bottom padding
+ * instead of sitting there as an empty line.
+ */
+.markdown-source-view.mod-cm6 .cm-line.panel-foot {
+	min-height: 0;
+	height: var(--size-4-2);
+	padding-top: 0;
+	padding-bottom: 0;
+	line-height: 0;
+	font-size: 0;
+}
+
+/* ...but restore it the moment the cursor is inside, so the raw ::: is legible. */
+.markdown-source-view.mod-cm6 .cm-line.panel-foot.panel-editing {
+	min-height: revert;
+	height: auto;
+	line-height: inherit;
+	font-size: inherit;
+	padding-bottom: var(--size-4-2);
+}
+
+/* ---------------------------------------------------------------- *
+ * Reading view                                                      *
+ * ---------------------------------------------------------------- */
+
+/*
+ * Sections carry vertical margins that would show up as gaps between the
+ * stacked parts of one box, so they are removed on every section a panel
+ * touches, and the box supplies its own padding instead.
+ */
+.markdown-preview-view .panel-section,
+.markdown-preview-view .panel-section > :first-child {
+	margin-top: 0 !important;
+}
+
+.markdown-preview-view .panel-section,
+.markdown-preview-view .panel-section > :last-child {
+	margin-bottom: 0 !important;
+}
+
+.markdown-preview-view .panel-content > :first-child {
+	margin-top: 0;
+}
+
+.markdown-preview-view .panel-content > :last-child {
+	margin-bottom: 0;
+}
+
+/* Give the header a little air from the content below it. */
+.markdown-preview-view .panel-head > .panel-header {
+	margin-bottom: var(--size-2-2);
+}
+
+/* Collapsed: the head keeps its header and closes itself off. */
+.panel-head.is-collapsed > .panel-content {
+	display: none;
+}
+
+.panel-head.is-collapsed {
+	border-bottom: 1px solid var(--background-modifier-border);
+	border-bottom-left-radius: var(--radius-m);
+	border-bottom-right-radius: var(--radius-m);
+	padding-bottom: var(--size-4-2);
+}
+
+.panel-head.is-collapsed > .panel-header {
+	margin-bottom: 0;
+}
+
+.panel-head.is-collapsed .panel-fold {
+	transform: rotate(-90deg);
+}
