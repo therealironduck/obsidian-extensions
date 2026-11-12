@@ -8,7 +8,9 @@
 		"noImplicitReturns": true,
 		"noFallthroughCasesInSwitch": true,
 		"noUncheckedIndexedAccess": true,
-		"moduleResolution": "node",
+		// `node` means node10, which TypeScript 6 deprecates and 7 removes.
+		// `bundler` is the correct mode for a project esbuild bundles anyway.
+		"moduleResolution": "bundler",
 		"isolatedModules": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
