@@ -1,0 +1,12 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["config:recommended"],
+	"commitMessagePrefix": "chore(deps):",
+	"packageRules": [
+		{
+			"matchPackageNames": ["*"],
+			"groupName": "all dependencies",
+			"groupSlug": "all-deps"
+		}
+	]
+}
