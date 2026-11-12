@@ -5,7 +5,8 @@
 - Target: Obsidian Community Plugin (TypeScript → bundled JavaScript).
 - Entry point: `src/main.ts` compiled to `main.js` and loaded by Obsidian.
 - Required release artifacts: `main.js`, `manifest.json`, and optional `styles.css`.
-- **This is a deliberately combined plugin.** It bundles every extension Jordan wrote for his own vault — currently `panels`, `slack-copy` and `unlink-at-cursor` — under one plugin id, one manifest and one bundle. These were once three separate plugins; do not split them back out. See `README.md` for the rationale.
+- **This is a deliberately combined plugin.** It bundles every extension Jordan wrote for his own vault — currently `panels`, `slack-copy`, `unlink-at-cursor` and `keep-folders-collapsed` — under one plugin id, one manifest and one bundle. These were once separate plugins; do not split them back out. See `README.md` for the rationale.
+- **To find which plugins in a vault are Jordan's own, read `manifest.json`'s `author` field** — do not infer it from whether the folder has `src/` or `package.json`. `keep-folders-collapsed` was missed in the original consolidation for exactly that reason: it was hand-written straight into `main.js` with no TypeScript source, so a source-shaped heuristic skipped it.
 - Not published to the community catalog. Distributed via BRAT from GitHub releases, or installed manually.
 
 ## Environment & tooling
@@ -39,6 +40,8 @@ bun run build
 - ESLint is preconfigured with `eslint-plugin-obsidianmd` for Obsidian-specific rules.
 - Run `bun run lint` to lint the project.
 - Warnings do not fail CI (ESLint exits 0 on warnings). Before adding `--max-warnings 0`, check what is currently warning and fix or disable it deliberately, or the pipeline goes permanently red.
+- One warning is currently accepted: `obsidianmd/settings-tab/prefer-setting-definitions` wants the declarative settings API so settings show up in Obsidian's settings search. Adopting it would mean raising `minAppVersion` from 1.4.0 to 1.13.0, which is a user-facing compatibility decision — take it deliberately, not to silence a warning.
+- **Cross-window correctness is a recurring trap here.** `instanceof`, `document` and `window` all break in popped-out windows, which have their own class identities and document. Use `node.instanceOf(X)`, `activeDocument` and `activeWindow`. The plugin's lint rules catch this; the failure mode is silent (a check just returns false), so do not dismiss those warnings as style.
 - **TypeScript is held below 6** by a rule in `.github/renovate.json`. Two separate upstream blockers, both verified by reproducing them:
     - **TS 6** breaks type-aware linting of `eslint.config.mts`. That file is outside `tsconfig.json`'s `include`, so it is linted through `parserOptions.projectService.allowDefaultProject`; under TS 6 `@types/node` stops resolving for it, which turns `import.meta.dirname` — and even `node:path` / `node:url` imports — into error types, and `@typescript-eslint/no-unsafe-assignment` fails. Switching `moduleResolution` to `bundler` fixes the _build_ under TS 6 but not this.
     - **TS 7** additionally breaks `eslint-plugin-obsidianmd`, which reads `ts.TypeFlags` at load time; that is undefined in the native rewrite, so ESLint crashes before linting anything.
@@ -66,7 +69,10 @@ bun run build
 
 - **Organize code into multiple files**: Split functionality across separate modules rather than putting everything in `main.ts`.
 - Source lives in `src/`. Keep `main.ts` small and focused on plugin lifecycle (loading, unloading, registering commands).
-- **One folder per feature under `src/features/`.** Each feature's `index.ts` exports a single `register<Feature>(plugin: Plugin)` that wires the feature up via `plugin.register*` / `plugin.addCommand`. Adding a feature is one import plus one call in `main.ts` and nothing else.
+- **One folder per feature under `src/features/`.** Each feature's `index.ts` exports a single `register<Feature>(plugin)` that wires the feature up via `plugin.register*` / `plugin.addCommand`. Adding a feature is one import plus one call in `main.ts` and nothing else.
+- **Settings are namespaced per feature.** `src/settings.ts` holds `ExtensionsSettings` with one key per feature; the shape and defaults for each live in that feature's own `settings.ts`. `loadSettings` merges one level deep on purpose — a plain `Object.assign` would let a stored object replace a whole feature section, so a newly added key would read back as `undefined` instead of falling back to its default.
+- A settings-aware feature takes the `SettingsOwner` interface from `src/settings.ts`, never the plugin class: importing `main.ts` from a feature would be a cycle.
+- Such a feature also exports `render<Feature>Settings(containerEl, plugin)`, which `src/ui/settings-tab.ts` calls under a heading. Where the feature needs its live instance in that render function (as `keep-folders-collapsed` does, to re-apply the folder list), it keeps a module-scoped `WeakMap` keyed by the plugin, so every feature's public surface stays identical.
 - Feature-specific code stays inside its feature folder. Only genuinely shared helpers move to `src/utils/` — `src/utils/wikilinks.ts` exists because two features needed the same wikilink pattern.
 - **Actual file structure**:
     ```
@@ -87,9 +93,17 @@ bun run build
           index.ts                 # registerUnlinkAtCursor()
           remove-link-at-cursor.ts
           find-wikilink-at-cursor.ts
+        keep-folders-collapsed/
+          index.ts                 # register + renderSettings
+          controller.ts            # the setCollapsed patching
+          explorer.ts              # types for the undocumented explorer internals
+          settings.ts              # this feature's settings shape and defaults
+      ui/
+        settings-tab.ts            # one tab, a section per feature
       utils/
         wikilinks.ts               # shared across features
-    styles.css                     # all feature styles, currently panels only
+      settings.ts                  # namespaced settings, loading and SettingsOwner
+    styles.css                     # all feature styles
     ```
 - **Do not commit build artifacts**: Never commit `node_modules/`, `main.js`, or other generated files to version control.
 - Keep the plugin small. Avoid large dependencies. Prefer browser-compatible packages.

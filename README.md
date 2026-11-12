@@ -113,6 +113,27 @@ Removes the `[[` `]]` around the wikilink under the cursor, keeping the alias wh
 set. The cursor ends up after the unwrapped text. Works anywhere inside the link,
 including on either bracket pair.
 
+### Keep folders collapsed
+
+Command: **Collapse watched folders now** · configurable
+
+Stops configured folders from auto-expanding in the file explorer when you open a note
+inside them. Obsidian reveals the active file by expanding its ancestors and offers no way
+to opt out, which makes a folder like `00 Dailies` unfold constantly.
+
+Expanding such a folder **by clicking still works** — it stays open until you collapse it
+again. Only the automatic reveal is suppressed.
+
+Configure the list under **Settings → Jordans Extensions**, one vault-relative path per
+line. Defaults to `00 Dailies`.
+
+Worth knowing that this one leans on internals: each watched folder's `setCollapsed` is
+wrapped so a programmatic expansion becomes a no-op while a click-initiated one passes
+through. The explorer rebuilds its tree and drops that patch, so it is reapplied on
+`file-open`, `active-leaf-change` and `layout-change`. `view.fileItems` and `setCollapsed`
+are not public API — every access is guarded, so if a future Obsidian release renames them
+this feature stops working rather than breaking the plugin.
+
 ## Install
 
 Not in the community catalog. The easiest route is
@@ -182,9 +203,17 @@ src/
       index.ts                 # registerUnlinkAtCursor()
       remove-link-at-cursor.ts
       find-wikilink-at-cursor.ts
+    keep-folders-collapsed/
+      index.ts                 # register + renderSettings
+      controller.ts            # the setCollapsed patching
+      explorer.ts              # types for the undocumented explorer internals
+      settings.ts              # this feature's settings shape and defaults
+  ui/
+    settings-tab.ts            # one tab, a section per feature
   utils/
     wikilinks.ts               # shared across features
-styles.css                     # all feature styles, currently panels only
+  settings.ts                  # namespaced settings, loading and SettingsOwner
+styles.css                     # all feature styles
 ```
 
 ### Adding a feature

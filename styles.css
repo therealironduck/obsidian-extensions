@@ -207,3 +207,8 @@
 .panel-head.is-collapsed .panel-fold {
 	transform: rotate(-90deg);
 }
+
+/* Settings: wide multi-line inputs, e.g. the folder list. */
+.jx-settings-textarea {
+	width: 100%;
+}
