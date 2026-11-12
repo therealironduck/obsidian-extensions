@@ -8,8 +8,5 @@ export function registerPanels(plugin: Plugin) {
 	plugin.registerEditorExtension(panelLivePreviewExtension);
 	// Runs after the core processors so callouts, embeds and math are
 	// already in place.
-	plugin.registerMarkdownPostProcessor(
-		createPanelPostProcessor(plugin.app, collapseState),
-		100,
-	);
+	plugin.registerMarkdownPostProcessor(createPanelPostProcessor(plugin.app, collapseState), 100);
 }

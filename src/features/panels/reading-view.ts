@@ -53,10 +53,7 @@ interface RenderPlan {
 }
 
 export function createPanelPostProcessor(app: App, state: CollapseState) {
-	return (
-		el: HTMLElement,
-		ctx: MarkdownPostProcessorContext,
-	): Promise<void> | void => {
+	return (el: HTMLElement, ctx: MarkdownPostProcessorContext): Promise<void> | void => {
 		// `MarkdownRenderer.render` re-runs every post processor on its output,
 		// so without this guard a panel would recurse into itself.
 		if (el.closest(`.${CLS.content}`) !== null) return;
@@ -94,11 +91,7 @@ export function createPanelPostProcessor(app: App, state: CollapseState) {
  * Picks the innermost closed panel this section belongs to. Unclosed panels
  * were filtered out already: claiming one would hide the rest of the note.
  */
-function planFor(
-	blocks: PanelBlock[],
-	lineStart: number,
-	lineEnd: number,
-): RenderPlan | null {
+function planFor(blocks: PanelBlock[], lineStart: number, lineEnd: number): RenderPlan | null {
 	let best: PanelBlock | null = null;
 	for (const block of blocks) {
 		if (!overlaps(block, lineStart, lineEnd)) continue;
@@ -110,9 +103,7 @@ function planFor(
 		block: best,
 		containsOpen: best.openLine >= lineStart && best.openLine <= lineEnd,
 		containsClose:
-			best.closeLine !== null &&
-			best.closeLine >= lineStart &&
-			best.closeLine <= lineEnd,
+			best.closeLine !== null && best.closeLine >= lineStart && best.closeLine <= lineEnd,
 	};
 }
 
@@ -153,9 +144,7 @@ async function renderFenceSection(
 		containsClose && block.closeLine !== null ? block.closeLine - 1 : info.lineEnd;
 	const content = slice(contentFrom, contentTo);
 	const after =
-		containsClose && block.closeLine !== null
-			? slice(block.closeLine + 1, info.lineEnd)
-			: '';
+		containsClose && block.closeLine !== null ? slice(block.closeLine + 1, info.lineEnd) : '';
 
 	el.empty();
 	el.addClass(CLS.section);
@@ -231,9 +220,7 @@ function applyCollapse(origin: HTMLElement, key: string, collapsed: boolean): vo
 		origin.closest('.markdown-preview-view') ??
 		origin.ownerDocument.body;
 
-	const boxes = root.querySelectorAll<HTMLElement>(
-		`[data-panel-key="${CSS.escape(key)}"]`,
-	);
+	const boxes = root.querySelectorAll<HTMLElement>(`[data-panel-key="${CSS.escape(key)}"]`);
 	for (const box of Array.from(boxes)) {
 		if (box.dataset.panelRole === 'head') box.toggleClass(CLS.collapsed, collapsed);
 		else box.toggleClass(CLS.hidden, collapsed);

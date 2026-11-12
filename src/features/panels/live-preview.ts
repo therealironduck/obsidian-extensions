@@ -101,9 +101,7 @@ function buildDecorations(state: EditorState): DecorationSet {
 		for (let line = block.openLine; line <= block.lastLine; line++) {
 			const { from } = doc.line(line + 1);
 			// Line decorations must be zero-length and sit at the line start.
-			ranges.push(
-				Decoration.line({ class: lineClasses(block, line, editing) }).range(from),
-			);
+			ranges.push(Decoration.line({ class: lineClasses(block, line, editing) }).range(from));
 		}
 
 		if (editing) continue;

@@ -11,6 +11,10 @@ export function removeLinkAtCursor(editor: Editor): void {
 		return;
 	}
 
-	editor.replaceRange(match.replacement, { line: cursor.line, ch: match.from }, { line: cursor.line, ch: match.to });
+	editor.replaceRange(
+		match.replacement,
+		{ line: cursor.line, ch: match.from },
+		{ line: cursor.line, ch: match.to },
+	);
 	editor.setCursor({ line: cursor.line, ch: match.from + match.replacement.length });
 }
