@@ -29,4 +29,17 @@ export default defineConfig(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		// After the recommended config, so this override actually takes effect.
+		files: ['src/features/keep-folders-collapsed/index.ts'],
+		rules: {
+			// This capture-phase click listener must bind to `document`. With
+			// `activeDocument` it never fired, so no expansion was recognised as
+			// user-initiated and the watched folders could not be opened at all.
+			// The file explorer only ever lives in the main window's sidebar, so
+			// there is no popout case to cover. Do not re-enable without
+			// clicking a watched folder in a real vault afterwards.
+			'obsidianmd/prefer-active-doc': 'off',
+		},
+	},
 );
