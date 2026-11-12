@@ -119,10 +119,14 @@ jobs:
           V='${{ steps.v.outputs.version }}'
           SLUG='${{ steps.app-token.outputs.app-slug }}'
           # Resolve the bot's numeric id so the commit is properly attributed to
-          # the App rather than to an unlinked address.
-          BOT_ID="$(gh api "/users/${SLUG}[bot]" --jq .id)"
+          # the App. Cosmetic only, so a lookup failure must not fail the
+          # release - fall back to the unlinked address.
           git config user.name "${SLUG}[bot]"
-          git config user.email "${BOT_ID}+${SLUG}[bot]@users.noreply.github.com"
+          if BOT_ID="$(gh api "/users/${SLUG}[bot]" --jq .id 2>/dev/null)" && [ -n "$BOT_ID" ]; then
+            git config user.email "${BOT_ID}+${SLUG}[bot]@users.noreply.github.com"
+          else
+            git config user.email "${SLUG}[bot]@users.noreply.github.com"
+          fi
           # npm version rewrites the lockfile too, which the `version` script
           # does not stage.
           git add package.json package-lock.json manifest.json versions.json
