@@ -58,7 +58,7 @@ npm run build
 - Breaking changes go in the PR title as `type!:` or in the PR body as a `BREAKING CHANGE:` footer.
 - Commit types `chore`, `docs`, `ci`, `refactor`, `style`, `test` and `build` are _hidden_: they are valid, but they do not trigger a version bump. A release containing only those will refuse to run.
 - The release workflow pushes a version-bump commit to the protected branch. It cannot do that with `GITHUB_TOKEN`: the built-in GitHub Actions app is first-party and cannot be installed as an org integration, so it is **not** an eligible ruleset bypass actor (the API rejects it with "Actor GitHub Actions integration must be part of the ruleset source or owner organization"). Instead a dedicated org-owned GitHub App holds the bypass, and the workflow mints a token for it via `actions/create-github-app-token`.
-- That App needs `contents: write` on this repo, and the repo needs two secrets: `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`. Remove the App from the ruleset bypass list, or let the private key expire, and releases fail at the push step.
+- That App needs `contents: write` on this repo, and the repo needs two secrets: `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY`. Remove the App from the ruleset bypass list, or let the private key expire, and releases fail at the push step.
 
 ## File & folder conventions
 
