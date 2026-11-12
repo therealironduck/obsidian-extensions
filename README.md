@@ -2,7 +2,7 @@
 
 **One Obsidian plugin that bundles every extension I wrote for my own vault.**
 
-This repository is deliberately *not* one repo per plugin. Everything I build for my
+This repository is deliberately _not_ one repo per plugin. Everything I build for my
 vault ships as a single plugin with a single id (`jordans-extensions`), a single
 `manifest.json` and a single `main.js`. What used to be three separate plugins —
 `panels`, `slack-copy` and `unlink-at-cursor` — are now three **features** inside this
@@ -42,7 +42,7 @@ instead of assuming it is your setup.
 Renders `::: panel` fenced blocks as titled, optionally collapsible boxes, in **both**
 live preview and reading view.
 
-````markdown
+```markdown
 ::: panel A plain panel
 Content goes here.
 :::
@@ -58,7 +58,7 @@ Variants add a colour and an icon.
 ::: panel.tip- Collapsible, starts collapsed
 `-` makes it collapsible and collapsed on load.
 :::
-````
+```
 
 Syntax rules:
 
@@ -115,7 +115,11 @@ including on either bracket pair.
 
 ## Install
 
-Not in the community catalog — this is a personal plugin, installed manually:
+Not in the community catalog. The easiest route is
+[BRAT](https://github.com/TfTHacker/obsidian42-brat), which installs from GitHub releases and
+auto-updates: install BRAT, then **Add beta plugin** → `therealironduck/obsidian-extensions`.
+
+Or manually:
 
 1. Build it (see below), or grab `main.js`, `manifest.json` and `styles.css` from a
    release.
@@ -131,9 +135,10 @@ value rather than silently claiming mobile support that was never tested.
 
 ```bash
 npm install
-npm run dev    # esbuild in watch mode
-npm run build  # typecheck, then a minified production bundle
+npm run dev           # esbuild in watch mode
+npm run build         # typecheck, then a minified production bundle
 npm run lint
+npm run format        # oxfmt; `format:check` is what CI runs
 ```
 
 `npm run dev` writes `main.js` to the project root. To test against a real vault, point
@@ -142,6 +147,20 @@ the build at the vault's plugin folder or symlink
 
 `main.js` is gitignored on purpose — it is a build artifact and belongs on a GitHub
 release, not in the tree.
+
+Formatting is configured through `.editorconfig`, which oxfmt reads directly; `.oxfmtrc.json`
+only carries what EditorConfig cannot express.
+
+### Contributing
+
+`main` requires a pull request and a green `ci` check. **Conventional Commits are enforced on the
+PR title**, since merges are squashed and the title becomes the commit subject on `main` — which is
+what the release automation reads to pick the next version. Breaking changes go in the title as
+`type!:` or in the body as a `BREAKING CHANGE:` footer.
+
+Releases are not cut by hand: the `Release` workflow is triggered manually, derives the version from
+the commits, and publishes the tag plus the three assets. Note that `chore`, `docs`, `ci`,
+`refactor`, `style`, `test` and `build` do not trigger a version bump.
 
 ## Layout
 

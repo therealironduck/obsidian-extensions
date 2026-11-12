@@ -6,7 +6,7 @@
 - Entry point: `src/main.ts` compiled to `main.js` and loaded by Obsidian.
 - Required release artifacts: `main.js`, `manifest.json`, and optional `styles.css`.
 - **This is a deliberately combined plugin.** It bundles every extension Jordan wrote for his own vault — currently `panels`, `slack-copy` and `unlink-at-cursor` — under one plugin id, one manifest and one bundle. These were once three separate plugins; do not split them back out. See `README.md` for the rationale.
-- Not published to the community catalog. It is installed manually into one vault.
+- Not published to the community catalog. Distributed via BRAT from GitHub releases, or installed manually.
 
 ## Environment & tooling
 
@@ -40,6 +40,24 @@ npm run build
 - ESLint is preconfigured with `eslint-plugin-obsidianmd` for Obsidian-specific rules.
 - Run `npm run lint` to lint the project.
 - `obsidianmd/ui/sentence-case` currently reports two warnings on the "Remove link at cursor" / "No link at cursor" strings, wanting `Cursor` capitalised. That is the rule being wrong about sentence case — leave the strings alone.
+- Those warnings do not fail CI (ESLint exits 0 on warnings). **Do not add `--max-warnings 0`** without first disabling that rule for those two lines, or the pipeline goes permanently red.
+- oxlint is deliberately _not_ used: it cannot load `eslint-plugin-obsidianmd`, which is the whole reason ESLint is here.
+
+## Formatting
+
+- **oxfmt** is the formatter: `npm run format` to write, `npm run format:check` to verify (CI runs the latter).
+- It formats TypeScript, JSON, Markdown **and YAML**. `package-lock.json` is excluded by its own ignore rules.
+- **`.editorconfig` is the real config.** oxfmt reads it and maps `indent_style`→`useTabs`, `indent_size`→`tabWidth`, `end_of_line`→`endOfLine`, `insert_final_newline`→`insertFinalNewline`. Only what EditorConfig cannot express lives in `.oxfmtrc.json` (`singleQuote`, `printWidth`). Do not duplicate indentation settings across the two files.
+- Source is tab-indented at width 4; `*.yml`/`*.yaml` get a 2-space override, because YAML forbids tab indentation and 2 spaces is the convention for workflow files.
+- `version-bump.mjs` appends a trailing newline when writing `manifest.json` and `versions.json`. That is load-bearing: without it every release would leave `main` failing `format:check`, because `insert_final_newline` is enforced.
+
+## Contributing workflow
+
+- `main` is protected by a repository ruleset: pull request required, the `ci` status check required, no force pushes, no deletion.
+- **Conventional Commits are enforced on the PR title**, not on individual commits, because merges are squash-merges and the repo is configured with `squash_merge_commit_title=PR_TITLE`. The PR title therefore becomes the commit subject on `main`, which is what the release workflow parses to derive the next version.
+- Breaking changes go in the PR title as `type!:` or in the PR body as a `BREAKING CHANGE:` footer.
+- Commit types `chore`, `docs`, `ci`, `refactor`, `style`, `test` and `build` are _hidden_: they are valid, but they do not trigger a version bump. A release containing only those will refuse to run.
+- The ruleset grants the **GitHub Actions app (id 15368) bypass**, so the release workflow can push its version-bump commit to the protected branch. Removing that bypass breaks releases at the final step.
 
 ## File & folder conventions
 
@@ -105,10 +123,31 @@ npm run build
 
 ## Versioning & releases
 
-- Bump `version` in `manifest.json` (SemVer) and update `versions.json` to map plugin version → minimum app version.
-- Create a GitHub release whose tag exactly matches `manifest.json`'s `version`. Do not use a leading `v`.
-- Attach `manifest.json`, `main.js`, and `styles.css` (if present) to the release as individual assets.
-- After the initial release, follow the process to add/update your plugin in the community catalog as required.
+**Releases are automated — do not bump versions by hand.** Run the `Release` workflow
+(`gh workflow run release.yml -f release_type=auto`). It derives the next version from the
+Conventional Commit subjects since the last tag, bumps `package.json` (whose `version` lifecycle
+script syncs `manifest.json` and `versions.json` via `version-bump.mjs`), builds, commits, tags and
+publishes.
+
+Rules the automation encodes, which still apply to anything done manually:
+
+- The tag is the **bare version with no `v` prefix** (e.g. `1.0.0`) and must exactly match
+  `manifest.json`'s `version`. Obsidian's community catalog requires this, and BRAT resolves
+  releases the same way.
+- `main.js`, `manifest.json` and `styles.css` are attached as three **individual** assets. A release
+  missing one installs as a broken plugin, so the workflow asserts all three exist and sets
+  `fail_on_unmatched_files`.
+- `versions.json` maps plugin version → `minAppVersion`. The bump script only ever _adds_ keys, never
+  removes them.
+- The bump commit must land on `main`: the catalog reads `manifest.json` from branch HEAD, while BRAT
+  reads it from the release assets. Tagging without the commit means BRAT users update and catalog
+  users never see the release.
+- `main.js` is gitignored and exists only as a release asset. Never commit it.
+- Never change `id` after a release. Treat it as stable API.
+
+Distribution today is **BRAT** (`therealironduck/obsidian-extensions`), which installs from release
+assets and auto-updates. The community catalog is a separate, deliberate decision — see `README.md`
+on why the combined design makes this a weak catalog candidate.
 
 ## Security, privacy, and compliance
 
