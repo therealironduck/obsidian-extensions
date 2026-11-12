@@ -24,6 +24,17 @@ The flip side, stated plainly: features cannot be enabled individually, and a bu
 one feature's `onload` can take the others down with it. That is an accepted trade for a
 personal plugin.
 
+## Disclaimer: this is vibe-coded
+
+This plugin is vibe-coded. It was built by prompting an AI agent, and the code has not
+been reviewed line by line by a human. There are no automated tests. It is tested the way
+a personal tool gets tested: it works in my vault, in my workflow, on my machine.
+
+That is a deliberate choice rather than an apology — I am comfortable with it for a tool
+I built for myself. But it should set your expectations if you install it: edge cases I
+never hit are quite possibly broken. If something misbehaves, please open an issue
+instead of assuming it is your setup.
+
 ## Features
 
 ### Panels
