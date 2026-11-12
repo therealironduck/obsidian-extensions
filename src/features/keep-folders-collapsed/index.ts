@@ -36,15 +36,20 @@ export function registerKeepFoldersCollapsed(plugin: SettingsOwner): void {
 	// Capture phase, so this runs before the explorer's own click handler and a
 	// setCollapsed() caused by the click is still seen as user-initiated.
 	//
-	// `activeDocument` and `instanceOf` rather than `document` and `instanceof`:
-	// a popped-out window has its own document and its own Element identity, so
-	// the plain forms would miss clicks made there.
+	// Bound to `document`, not `activeDocument`: see the rule override for this
+	// file in eslint.config.mts. The explorer only lives in the main window's
+	// sidebar, and binding elsewhere stopped this listener from firing at all.
+	//
+	// The target is narrowed by feature-detecting `closest` rather than by any
+	// kind of instanceof. That avoids class identity altogether, so it cannot
+	// break across windows the way `instanceof Element` does, and it degrades
+	// safely when the target is a text node or the document itself.
 	plugin.registerDomEvent(
-		activeDocument,
+		document,
 		'click',
 		(event) => {
-			const target = event.target as Node | null;
-			if (target?.instanceOf(Element) && target.closest(EXPLORER_SELECTOR)) {
+			const target = event.target as Element | null;
+			if (target?.closest?.(EXPLORER_SELECTOR)) {
 				controller.beginUserAction();
 				later(() => controller.endUserAction(), 0);
 			}
