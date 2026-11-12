@@ -189,8 +189,13 @@ async function renderHeader(
 		await renderInto(app, ctx, titleEl, block.title);
 		// Unwrap the paragraph the renderer wraps a single line in, so the
 		// title sits inline next to its icon.
+		//
+		// `instanceOf` rather than `instanceof`: in a popped-out window the
+		// element belongs to a different document, whose HTMLParagraphElement is
+		// a separate identity, so a plain `instanceof` silently returns false
+		// there and the title renders as a block instead of inline.
 		const first = titleEl.firstElementChild;
-		if (first instanceof HTMLParagraphElement) {
+		if (first?.instanceOf(HTMLParagraphElement)) {
 			titleEl.setChildrenInPlace(Array.from(first.childNodes));
 		}
 	} else {
