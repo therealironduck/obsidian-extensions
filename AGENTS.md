@@ -10,43 +10,42 @@
 
 ## Environment & tooling
 
-- Node.js: use current LTS (Node 18+ recommended).
-- **Package manager: npm** (required for this sample - `package.json` defines npm scripts and dependencies).
-- **Bundler: esbuild** (required for this sample - `esbuild.config.mjs` and build scripts depend on it). Alternative bundlers like Rollup or webpack are acceptable for other projects if they bundle all external dependencies into `main.js`.
+- **Package manager: bun.** Use `bun install`, `bun run <script>`, `bun pm version`. Do **not** use npm here — `package-lock.json` is gone and `bun.lock` is the committed lockfile. CI runs `bun install --frozen-lockfile`.
+- The bun version is pinned once in `package.json`'s `packageManager` field; both workflows read it via setup-bun's `bun-version-file`. Bump it there, not in the workflows.
+- **Bundler: esbuild**, driven by `esbuild.config.mjs`. Everything must be bundled into `main.js` with no unbundled runtime deps. Note esbuild's platform binary arrives as an optional dependency under bun, so no postinstall trust is needed.
+- Scripts still run under Node (`tsc`, `node esbuild.config.mjs`); bun is the package manager and task runner, not the runtime for the build.
 - Types: `obsidian` type definitions.
-
-**Note**: This sample project has specific technical dependencies on npm and esbuild. If you're creating a plugin from scratch, you can choose different tools, but you'll need to replace the build configuration accordingly.
 
 ### Install
 
 ```bash
-npm install
+bun install
 ```
 
 ### Dev (watch)
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 ### Production build
 
 ```bash
-npm run build
+bun run build
 ```
 
 ## Linting
 
 - ESLint is preconfigured with `eslint-plugin-obsidianmd` for Obsidian-specific rules.
-- Run `npm run lint` to lint the project.
+- Run `bun run lint` to lint the project.
 - `obsidianmd/ui/sentence-case` currently reports two warnings on the "Remove link at cursor" / "No link at cursor" strings, wanting `Cursor` capitalised. That is the rule being wrong about sentence case — leave the strings alone.
 - Those warnings do not fail CI (ESLint exits 0 on warnings). **Do not add `--max-warnings 0`** without first disabling that rule for those two lines, or the pipeline goes permanently red.
 - oxlint is deliberately _not_ used: it cannot load `eslint-plugin-obsidianmd`, which is the whole reason ESLint is here.
 
 ## Formatting
 
-- **oxfmt** is the formatter: `npm run format` to write, `npm run format:check` to verify (CI runs the latter).
-- It formats TypeScript, JSON, Markdown **and YAML**. `package-lock.json` is excluded by its own ignore rules.
+- **oxfmt** is the formatter: `bun run format` to write, `bun run format:check` to verify (CI runs the latter).
+- It formats TypeScript, JSON, Markdown **and YAML**. Lockfiles (`bun.lock`) are excluded by its own ignore rules.
 - **`.editorconfig` is the real config.** oxfmt reads it and maps `indent_style`→`useTabs`, `indent_size`→`tabWidth`, `end_of_line`→`endOfLine`, `insert_final_newline`→`insertFinalNewline`. Only what EditorConfig cannot express lives in `.oxfmtrc.json` (`singleQuote`, `printWidth`). Do not duplicate indentation settings across the two files.
 - Source is tab-indented at width 4; `*.yml`/`*.yaml` get a 2-space override, because YAML forbids tab indentation and 2 spaces is the convention for workflow files.
 - `version-bump.mjs` appends a trailing newline when writing `manifest.json` and `versions.json`. That is load-bearing: without it every release would leave `main` failing `format:check`, because `insert_final_newline` is enforced.
@@ -306,7 +305,7 @@ this.registerInterval(
 ## Troubleshooting
 
 - Plugin doesn't load after build: ensure `main.js` and `manifest.json` are at the top level of the plugin folder under `<Vault>/.obsidian/plugins/<plugin-id>/`.
-- Build issues: if `main.js` is missing, run `npm run build` or `npm run dev` to compile your TypeScript source code.
+- Build issues: if `main.js` is missing, run `bun run build` or `bun run dev` to compile your TypeScript source code.
 - Commands not appearing: verify `addCommand` runs after `onload` and IDs are unique.
 - Settings not persisting: ensure `loadData`/`saveData` are awaited and you re-render the UI after changes.
 - Mobile-only issues: confirm you're not using desktop-only APIs; check `isDesktopOnly` and adjust.

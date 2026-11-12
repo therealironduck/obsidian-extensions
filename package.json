@@ -30,5 +30,6 @@
 		"oxfmt": "^0.78.0",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "^8.59.1"
-	}
+	},
+	"packageManager": "bun@1.4.4"
 }
