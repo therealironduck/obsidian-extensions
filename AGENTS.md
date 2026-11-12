@@ -38,8 +38,8 @@ bun run build
 
 - ESLint is preconfigured with `eslint-plugin-obsidianmd` for Obsidian-specific rules.
 - Run `bun run lint` to lint the project.
-- `obsidianmd/ui/sentence-case` currently reports two warnings on the "Remove link at cursor" / "No link at cursor" strings, wanting `Cursor` capitalised. That is the rule being wrong about sentence case — leave the strings alone.
-- Those warnings do not fail CI (ESLint exits 0 on warnings). **Do not add `--max-warnings 0`** without first disabling that rule for those two lines, or the pipeline goes permanently red.
+- Warnings do not fail CI (ESLint exits 0 on warnings). Before adding `--max-warnings 0`, check what is currently warning and fix or disable it deliberately, or the pipeline goes permanently red.
+- **TypeScript is held below 7** by a rule in `.github/renovate.json`. TS 7 is the native rewrite: its JS compiler API no longer exposes `ts.TypeFlags`, which `eslint-plugin-obsidianmd` reads at load time, so ESLint crashes outright; `tsconfig.json`'s `moduleResolution: node` also became invalid. Lift the pin only once the plugin supports TS 7, and expect to change `moduleResolution` at the same time.
 - oxlint is deliberately _not_ used: it cannot load `eslint-plugin-obsidianmd`, which is the whole reason ESLint is here.
 
 ## Formatting

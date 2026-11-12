@@ -7,6 +7,11 @@
 			"matchPackageNames": ["*"],
 			"groupName": "all dependencies",
 			"groupSlug": "all-deps"
+		},
+		{
+			"matchPackageNames": ["typescript"],
+			"allowedVersions": "<7",
+			"description": "TypeScript 7 is the native rewrite and changes the JS compiler API. eslint-plugin-obsidianmd reads ts.TypeFlags, which is undefined there, so ESLint crashes on load; tsconfig's moduleResolution=node10 was also removed. Lift once the plugin supports TS 7."
 		}
 	]
 }
