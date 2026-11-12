@@ -9,3 +9,9 @@ indent_style = tab
 indent_size = 4
 quote_type = single
 tab_width = 4
+
+# YAML cannot be indented with tabs, and 2 spaces is the convention for GitHub
+# workflow files. oxfmt reads these settings, so this is also its config.
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2

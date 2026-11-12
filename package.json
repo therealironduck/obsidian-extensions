@@ -2,27 +2,32 @@
 	"name": "jordans-extensions",
 	"version": "1.0.0",
 	"description": "Jordan's own vault tweaks in one plugin: panels, Slack copy and unlink at cursor",
-	"main": "main.js",
+	"keywords": [],
+	"license": "0-BSD",
 	"type": "module",
+	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"format": "oxfmt",
+		"format:check": "oxfmt --check"
 	},
-	"keywords": [],
-	"license": "0-BSD",
 	"devDependencies": {
 		"@codemirror/state": "^6.5.2",
 		"@codemirror/view": "^6.36.4",
 		"@eslint/js": "^9.39.4",
 		"@types/node": "^22.15.17",
+		"conventional-changelog-conventionalcommits": "^10.4.1",
+		"conventional-recommended-bump": "^12.1.1",
 		"esbuild": "0.25.5",
 		"eslint": "^9.39.4",
 		"eslint-plugin-obsidianmd": "^0.4.0",
 		"globals": "^17.6.0",
 		"jiti": "^2.6.1",
 		"obsidian": "latest",
+		"oxfmt": "^0.78.0",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "^8.59.1"
 	}
