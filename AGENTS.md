@@ -57,7 +57,8 @@ npm run build
 - **Conventional Commits are enforced on the PR title**, not on individual commits, because merges are squash-merges and the repo is configured with `squash_merge_commit_title=PR_TITLE`. The PR title therefore becomes the commit subject on `main`, which is what the release workflow parses to derive the next version.
 - Breaking changes go in the PR title as `type!:` or in the PR body as a `BREAKING CHANGE:` footer.
 - Commit types `chore`, `docs`, `ci`, `refactor`, `style`, `test` and `build` are _hidden_: they are valid, but they do not trigger a version bump. A release containing only those will refuse to run.
-- The ruleset grants the **GitHub Actions app (id 15368) bypass**, so the release workflow can push its version-bump commit to the protected branch. Removing that bypass breaks releases at the final step.
+- The release workflow pushes a version-bump commit to the protected branch. It cannot do that with `GITHUB_TOKEN`: the built-in GitHub Actions app is first-party and cannot be installed as an org integration, so it is **not** an eligible ruleset bypass actor (the API rejects it with "Actor GitHub Actions integration must be part of the ruleset source or owner organization"). Instead a dedicated org-owned GitHub App holds the bypass, and the workflow mints a token for it via `actions/create-github-app-token`.
+- That App needs `contents: write` on this repo, and the repo needs two secrets: `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`. Remove the App from the ruleset bypass list, or let the private key expire, and releases fail at the push step.
 
 ## File & folder conventions
 

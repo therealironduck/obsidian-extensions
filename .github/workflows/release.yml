@@ -31,11 +31,25 @@ jobs:
       - name: Guard - release only from main
         run: test "${{ github.ref }}" = refs/heads/main
 
+      # `main` requires pull requests, and GITHUB_TOKEN cannot bypass that: the
+      # built-in GitHub Actions app is first-party and is not installable as an
+      # org integration, so it cannot be a ruleset bypass actor. A dedicated
+      # org-owned App can be, so the bump commit is pushed with its token.
+      - name: Mint App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v7
         with:
           # Full history and tags: the bump tool measures commits since the
           # most recent tag.
           fetch-depth: 0
+          # Persist the App token as the remote credential so the later push
+          # carries the bypass.
+          token: ${{ steps.app-token.outputs.token }}
 
       - uses: actions/setup-node@v7
         with:
@@ -103,21 +117,28 @@ jobs:
         run: |
           set -euo pipefail
           V='${{ steps.v.outputs.version }}'
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          SLUG='${{ steps.app-token.outputs.app-slug }}'
+          # Resolve the bot's numeric id so the commit is properly attributed to
+          # the App rather than to an unlinked address.
+          BOT_ID="$(gh api "/users/${SLUG}[bot]" --jq .id)"
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${BOT_ID}+${SLUG}[bot]@users.noreply.github.com"
           # npm version rewrites the lockfile too, which the `version` script
           # does not stage.
           git add package.json package-lock.json manifest.json versions.json
           git commit -m "chore(release): $V"
           git tag -a "$V" -m "$V"
-          # Pushing to a PR-protected main works because the ruleset grants the
-          # GitHub Actions app (id 15368) bypass. See AGENTS.md.
+          # Works against a PR-protected main only because the ruleset grants
+          # this App bypass. See AGENTS.md.
           git push origin HEAD:main
           git push origin "refs/tags/$V"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Publish release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
+          token: ${{ steps.app-token.outputs.token }}
           tag_name: ${{ steps.v.outputs.version }}
           name: ${{ steps.v.outputs.version }}
           generate_release_notes: true
