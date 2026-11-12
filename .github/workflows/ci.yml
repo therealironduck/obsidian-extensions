@@ -21,21 +21,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          node-version: 22
-          cache: npm
+          # Reads the `packageManager` field so the version is pinned in one place.
+          bun-version-file: package.json
 
-      - run: npm ci
+      - run: bun install --frozen-lockfile
 
       - name: Format
-        run: npm run format:check
+        run: bun run format:check
 
       # Warnings do not fail the build; see AGENTS.md on the two deliberately
       # ignored sentence-case warnings.
       - name: Lint
-        run: npm run lint
+        run: bun run lint
 
       # `build` runs `tsc -noEmit` first, so this is the typecheck as well.
       - name: Build
-        run: npm run build
+        run: bun run build

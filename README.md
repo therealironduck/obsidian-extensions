@@ -12,7 +12,7 @@ Why one plugin instead of three:
 
 - **One install, one update.** Enabling my tweaks in a vault means enabling one plugin,
   not hunting down three folders and three releases.
-- **One build.** One `npm install`, one `npm run build`, one set of configs to keep
+- **One build.** One `bun install`, one `bun run build`, one set of configs to keep
   current instead of three that drift apart.
 - **Shared code actually gets shared.** `slack-copy` and `unlink-at-cursor` each carried
   their own copy of the wikilink regex. Now there is one
@@ -134,14 +134,14 @@ value rather than silently claiming mobile support that was never tested.
 ## Development
 
 ```bash
-npm install
-npm run dev           # esbuild in watch mode
-npm run build         # typecheck, then a minified production bundle
-npm run lint
-npm run format        # oxfmt; `format:check` is what CI runs
+bun install
+bun run dev           # esbuild in watch mode
+bun run build         # typecheck, then a minified production bundle
+bun run lint
+bun run format        # oxfmt; `format:check` is what CI runs
 ```
 
-`npm run dev` writes `main.js` to the project root. To test against a real vault, point
+`bun run dev` writes `main.js` to the project root. To test against a real vault, point
 the build at the vault's plugin folder or symlink
 `<Vault>/.obsidian/plugins/jordans-extensions/` at this directory.
 

@@ -52,12 +52,12 @@ jobs:
           # carries the bypass.
           token: ${{ steps.app-token.outputs.token }}
 
-      - uses: actions/setup-node@v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          node-version: 22
-          cache: npm
+          # Reads the `packageManager` field so the version is pinned in one place.
+          bun-version-file: package.json
 
-      - run: npm ci
+      - run: bun install --frozen-lockfile
 
       # Deliberately before any mutation. The bundle does not embed the version
       # (static banner, no `define` in esbuild.config.mjs), so building first is
@@ -65,9 +65,9 @@ jobs:
       - name: Verify and build
         run: |
           set -euo pipefail
-          npm run format:check
-          npm run lint
-          npm run build
+          bun run format:check
+          bun run lint
+          bun run build
           test -s main.js
           test -s manifest.json
           test -s styles.css
@@ -79,7 +79,9 @@ jobs:
           if [ "${{ inputs.release_type }}" != auto ]; then
             LEVEL="${{ inputs.release_type }}"
           else
-            LEVEL="$(npx --no-install conventional-recommended-bump -p conventionalcommits)"
+            # Called by path rather than through a runner, so it can only ever
+            # be the version pinned in the lockfile.
+            LEVEL="$(./node_modules/.bin/conventional-recommended-bump -p conventionalcommits)"
           fi
           # The preset prints nothing when every commit since the last tag is a
           # hidden type (chore, docs, ci, refactor, style, test, build).
@@ -89,7 +91,7 @@ jobs:
           fi
           echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
 
-      # One bump. `npm version` runs the `version` lifecycle script even with
+      # One bump. `bun pm version` runs the `version` lifecycle script even with
       # --no-git-tag-version, so version-bump.mjs syncs manifest.json and
       # versions.json with the correct npm_package_version. Do not also invoke
       # version-bump.mjs by hand: with an empty variable it writes an undefined
@@ -98,9 +100,8 @@ jobs:
         id: v
         run: |
           set -euo pipefail
-          npm version "${{ steps.bump.outputs.level }}" --no-git-tag-version
-          # Read from package.json, not from `npm version` stdout, which
-          # carries the `v` prefix from tag-version-prefix.
+          bun pm version "${{ steps.bump.outputs.level }}" --no-git-tag-version
+          # Read from package.json, not from stdout, which carries a `v` prefix.
           echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Assert version consistency
@@ -128,9 +129,10 @@ jobs:
           else
             git config user.email "${SLUG}[bot]@users.noreply.github.com"
           fi
-          # npm version rewrites the lockfile too, which the `version` script
-          # does not stage.
-          git add package.json package-lock.json manifest.json versions.json
+          # The `version` script only stages manifest.json and versions.json.
+          # bun.lock does not currently carry the workspace version, but it is
+          # staged anyway so a future bun that does cannot drift.
+          git add package.json bun.lock manifest.json versions.json
           git commit -m "chore(release): $V"
           git tag -a "$V" -m "$V"
           # Works against a PR-protected main only because the ruleset grants
