@@ -39,7 +39,10 @@ bun run build
 - ESLint is preconfigured with `eslint-plugin-obsidianmd` for Obsidian-specific rules.
 - Run `bun run lint` to lint the project.
 - Warnings do not fail CI (ESLint exits 0 on warnings). Before adding `--max-warnings 0`, check what is currently warning and fix or disable it deliberately, or the pipeline goes permanently red.
-- **TypeScript is held below 7** by a rule in `.github/renovate.json`. TS 7 is the native rewrite: its JS compiler API no longer exposes `ts.TypeFlags`, which `eslint-plugin-obsidianmd` reads at load time, so ESLint crashes outright; `tsconfig.json`'s `moduleResolution: node` also became invalid. Lift the pin only once the plugin supports TS 7, and expect to change `moduleResolution` at the same time.
+- **TypeScript is held below 6** by a rule in `.github/renovate.json`. Two separate upstream blockers, both verified by reproducing them:
+    - **TS 6** breaks type-aware linting of `eslint.config.mts`. That file is outside `tsconfig.json`'s `include`, so it is linted through `parserOptions.projectService.allowDefaultProject`; under TS 6 `@types/node` stops resolving for it, which turns `import.meta.dirname` — and even `node:path` / `node:url` imports — into error types, and `@typescript-eslint/no-unsafe-assignment` fails. Switching `moduleResolution` to `bundler` fixes the _build_ under TS 6 but not this.
+    - **TS 7** additionally breaks `eslint-plugin-obsidianmd`, which reads `ts.TypeFlags` at load time; that is undefined in the native rewrite, so ESLint crashes before linting anything.
+- `moduleResolution` is already `bundler` rather than the deprecated node10, so that part of the migration is done.
 - oxlint is deliberately _not_ used: it cannot load `eslint-plugin-obsidianmd`, which is the whole reason ESLint is here.
 
 ## Formatting
