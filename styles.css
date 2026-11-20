@@ -212,3 +212,18 @@
 .jx-settings-textarea {
 	width: 100%;
 }
+
+/*
+ * DOCX export renders the note through Obsidian's own renderer and walks the
+ * result. The container has to be in the document — some renderers measure
+ * layout and produce nothing at all when orphaned — but must never be seen or
+ * affect the real layout, hence off-canvas rather than `display: none`.
+ */
+.jx-docx-offscreen {
+	position: absolute;
+	left: -10000px;
+	top: 0;
+	width: 800px;
+	visibility: hidden;
+	pointer-events: none;
+}

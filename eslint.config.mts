@@ -42,4 +42,17 @@ export default defineConfig(
 			'obsidianmd/prefer-active-doc': 'off',
 		},
 	},
+	{
+		files: ['src/features/docx-export/export-note.ts'],
+		rules: {
+			// The export Notice is click-to-reveal, which needs the notice's
+			// element. `messageEl` supersedes `noticeEl`, but only from 1.8.7,
+			// and `minAppVersion` is 1.4.0 — so on the versions this plugin
+			// claims to support, `noticeEl` is the only API that exists.
+			// Raising the floor is a user-facing compatibility decision, not a
+			// lint fix. Drop this override and switch to `messageEl` whenever
+			// minAppVersion moves past 1.8.7.
+			'@typescript-eslint/no-deprecated': 'off',
+		},
+	},
 );

@@ -1,6 +1,7 @@
 import { PluginSettingTab, Setting, type App } from 'obsidian';
 import { type SettingsOwner } from '../settings';
 import { renderKeepFoldersCollapsedSettings } from '../features/keep-folders-collapsed';
+import { renderDocxExportSettings } from '../features/docx-export';
 
 /**
  * One tab for the whole plugin, with a section per feature that has settings.
@@ -20,5 +21,8 @@ export class ExtensionsSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName('Keep folders collapsed').setHeading();
 		renderKeepFoldersCollapsedSettings(containerEl, this.owner);
+
+		new Setting(containerEl).setName('DOCX export').setHeading();
+		renderDocxExportSettings(containerEl, this.owner);
 	}
 }
