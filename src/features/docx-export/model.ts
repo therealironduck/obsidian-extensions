@@ -27,12 +27,23 @@ export interface ListItem {
 	/** 0-based nesting depth. */
 	level: number;
 	task?: 'todo' | 'done';
+	/**
+	 * Whether this item's own list is ordered. Carried per item rather than per
+	 * block because a bullet list can nest a numbered one and the other way
+	 * round, and a single flag for the outermost list gets both wrong.
+	 */
+	ordered: boolean;
+	/**
+	 * Identifies the list the item came from, so every item of one list shares
+	 * a numbering instance while a sibling list restarts at 1.
+	 */
+	listId: number;
 }
 
 export type Block =
 	| { type: 'heading'; level: 1 | 2 | 3 | 4; inlines: Inline[] }
 	| { type: 'para'; inlines: Inline[] }
-	| { type: 'list'; ordered: boolean; items: ListItem[] }
+	| { type: 'list'; items: ListItem[] }
 	| { type: 'table'; header: Inline[][]; rows: Inline[][][]; align: Align[]; widths?: number[] }
 	| { type: 'code'; text: string }
 	| { type: 'quote'; blocks: Block[] }

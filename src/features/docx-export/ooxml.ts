@@ -138,13 +138,18 @@ export interface MediaSink {
 	entries(): { id: string; name: string; data: Uint8Array }[];
 }
 
-export function createMediaSink(): MediaSink {
+/**
+ * The prefix keeps two sinks apart. Footnote images live in the same
+ * `word/media/` folder as the document's, so without it both would start at
+ * `image1.png` and the second would overwrite the first in the archive.
+ */
+export function createMediaSink(prefix = 'image'): MediaSink {
 	const entries: { id: string; name: string; data: Uint8Array }[] = [];
 	return {
 		add(data, extension) {
 			const index = entries.length + 1;
-			const id = `rIdImage${String(index)}`;
-			entries.push({ id, name: `image${String(index)}.${extension}`, data });
+			const id = `rId${prefix}${String(index)}`;
+			entries.push({ id, name: `${prefix}${String(index)}.${extension}`, data });
 			return id;
 		},
 		entries: () => entries,
@@ -318,7 +323,14 @@ function tableShell(widths: number[], rows: string): string {
 	);
 }
 
-/** State that has to thread through block emission: list numbering instances. */
+/**
+ * State that has to thread through block emission.
+ *
+ * `rels` and `media` are swapped while the footnotes part is built, because a
+ * relationship id resolves against the relationships of the part that uses it:
+ * an `r:id` emitted into `footnotes.xml` but recorded in `document.xml.rels`
+ * does not resolve, and Word reports the file as unreadable.
+ */
 interface Context {
 	rels: RelSink;
 	media: MediaSink;
@@ -383,7 +395,10 @@ function spacer(): string {
 }
 
 function emitList(block: Extract<Block, { type: 'list' }>, ctx: Context): string {
-	const numId = block.ordered ? allocateOrdered(ctx) : 2;
+	// One numbering instance per source list, so a nested ordered list restarts
+	// at 1 while its own items continue, and bullets nested inside a numbered
+	// list stay bullets.
+	const instances = new Map<number, number>();
 
 	return block.items
 		.map((item: ListItem) => {
@@ -407,6 +422,13 @@ function emitList(block: Extract<Block, { type: 'list' }>, ctx: Context): string
 				);
 			}
 
+			let numId = BULLET_NUM_ID;
+			if (item.ordered) {
+				const existing = instances.get(item.listId);
+				numId = existing ?? allocateOrdered(ctx);
+				if (existing === undefined) instances.set(item.listId, numId);
+			}
+
 			return para(
 				item.inlines,
 				{},
@@ -416,6 +438,9 @@ function emitList(block: Extract<Block, { type: 'list' }>, ctx: Context): string
 		})
 		.join('');
 }
+
+/** Bullets need no per-list instance: they carry no counter to restart. */
+const BULLET_NUM_ID = 2;
 
 function allocateOrdered(ctx: Context): number {
 	const id = ctx.nextNumId++;
@@ -525,6 +550,9 @@ export interface BuiltDocument {
 	footnotes: string;
 	rels: RelSink;
 	media: MediaSink;
+	/** Relationships used from inside `footnotes.xml`, which needs its own part. */
+	footnoteRels: RelSink;
+	footnoteMedia: MediaSink;
 }
 
 export function buildDocument(doc: Doc): BuiltDocument {
@@ -569,12 +597,28 @@ export function buildDocument(doc: Doc): BuiltDocument {
 		`<w:document ${WORD_NAMESPACES}>` +
 		`<w:body>${title}${subtitle}${body}${sectPr}</w:body></w:document>`;
 
+	// Footnotes are built before the numbering part, not after: an ordered list
+	// inside a footnote body allocates a numId, and serialising numbering.xml
+	// first would leave that id without a matching `w:num`.
+	//
+	// They are also built against their own sinks, so links and images inside a
+	// footnote are recorded in `footnotes.xml.rels` rather than the document's.
+	const footnoteRels = createRelSink();
+	const footnoteMedia = createMediaSink('fnimage');
+	ctx.rels = footnoteRels;
+	ctx.media = footnoteMedia;
+	const footnotes = buildFootnotes(doc, ctx);
+	ctx.rels = rels;
+	ctx.media = media;
+
 	return {
 		document,
 		numbering: buildNumbering(ctx.orderedIds),
-		footnotes: buildFootnotes(doc, ctx),
+		footnotes,
 		rels,
 		media,
+		footnoteRels,
+		footnoteMedia,
 	};
 }
 
@@ -834,29 +878,52 @@ export function buildRootRels(): string {
 	);
 }
 
-export function buildDocumentRels(rels: RelSink, media: MediaSink): string {
-	const base = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const REL_BASE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+/** The hyperlink and image entries a part needs for the ids it emitted. */
+function contentRels(rels: RelSink, media: MediaSink): string {
 	return (
-		'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-		'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-		`<Relationship Id="rIdStyles" Type="${base}/styles" Target="styles.xml"/>` +
-		`<Relationship Id="rIdNumbering" Type="${base}/numbering" Target="numbering.xml"/>` +
-		`<Relationship Id="rIdFooter" Type="${base}/footer" Target="footer1.xml"/>` +
-		`<Relationship Id="rIdFootnotes" Type="${base}/footnotes" Target="footnotes.xml"/>` +
 		rels
 			.entries()
 			.map(
 				(entry) =>
-					`<Relationship Id="${entry.id}" Type="${base}/hyperlink" Target="${esc(entry.target)}" TargetMode="External"/>`,
+					`<Relationship Id="${entry.id}" Type="${REL_BASE}/hyperlink" Target="${esc(entry.target)}" TargetMode="External"/>`,
 			)
 			.join('') +
 		media
 			.entries()
 			.map(
 				(entry) =>
-					`<Relationship Id="${entry.id}" Type="${base}/image" Target="media/${entry.name}"/>`,
+					`<Relationship Id="${entry.id}" Type="${REL_BASE}/image" Target="media/${entry.name}"/>`,
 			)
-			.join('') +
+			.join('')
+	);
+}
+
+function relationships(inner: string): string {
+	return (
+		'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+		'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+		inner +
 		'</Relationships>'
 	);
+}
+
+export function buildDocumentRels(rels: RelSink, media: MediaSink): string {
+	return relationships(
+		`<Relationship Id="rIdStyles" Type="${REL_BASE}/styles" Target="styles.xml"/>` +
+			`<Relationship Id="rIdNumbering" Type="${REL_BASE}/numbering" Target="numbering.xml"/>` +
+			`<Relationship Id="rIdFooter" Type="${REL_BASE}/footer" Target="footer1.xml"/>` +
+			`<Relationship Id="rIdFootnotes" Type="${REL_BASE}/footnotes" Target="footnotes.xml"/>` +
+			contentRels(rels, media),
+	);
+}
+
+/**
+ * Written as `word/_rels/footnotes.xml.rels`. Omitted entirely when a note has
+ * no footnotes carrying links or images, since an empty part is still valid but
+ * pointless.
+ */
+export function buildFootnoteRels(rels: RelSink, media: MediaSink): string {
+	return relationships(contentRels(rels, media));
 }

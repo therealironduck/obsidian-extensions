@@ -37,6 +37,14 @@ interface Context {
 	/** Explicit `%% docx-widths %%` values, consumed in table order. */
 	widths: (number[] | null)[];
 	tableIndex: number;
+	/**
+	 * False while footnote bodies are walked. Those are lifted out ahead of the
+	 * main content, so a table inside one would otherwise consume the width
+	 * declaration meant for a table further down the note.
+	 */
+	countTables: boolean;
+	/** Counter handing each source list its own identity. */
+	nextListId: number;
 }
 
 export async function buildBlocks(
@@ -61,6 +69,8 @@ export async function buildBlocks(
 		skipped: new Set(),
 		widths,
 		tableIndex: 0,
+		countTables: true,
+		nextListId: 0,
 	};
 
 	try {
@@ -86,7 +96,10 @@ async function blocksFromLines(lines: string[], ctx: Context): Promise<Block[]> 
 
 	for (const panel of panels) {
 		const open = panel.openLine - 1;
-		const close = (panel.closeLine ?? padded.length - 1) - 1;
+		// `close` is the exclusive end of the body, which for a closed panel is
+		// the index of its closing fence. An unclosed panel has no fence, so its
+		// body runs to the end — using the last line as the bound would drop it.
+		const close = panel.closeLine === null ? lines.length : panel.closeLine - 1;
 
 		if (open > cursor) out.push(...(await renderChunk(lines.slice(cursor, open), ctx)));
 
@@ -139,12 +152,18 @@ async function extractFootnotes(el: HTMLElement, ctx: Context): Promise<void> {
 	const section = el.querySelector('section.footnotes, div.footnotes');
 	if (!section) return;
 
-	for (const item of Array.from(section.querySelectorAll('ol > li'))) {
-		// The back-reference arrow is navigation, not content.
-		for (const back of Array.from(item.querySelectorAll('a.footnote-backref'))) {
-			back.remove();
+	const counting = ctx.countTables;
+	ctx.countTables = false;
+	try {
+		for (const item of Array.from(section.querySelectorAll('ol > li'))) {
+			// The back-reference arrow is navigation, not content.
+			for (const back of Array.from(item.querySelectorAll('a.footnote-backref'))) {
+				back.remove();
+			}
+			ctx.footnotes.push({ blocks: await blocksFromChildren(item as HTMLElement, ctx, 0) });
 		}
-		ctx.footnotes.push({ blocks: await blocksFromChildren(item as HTMLElement, ctx, 0) });
+	} finally {
+		ctx.countTables = counting;
 	}
 	section.remove();
 }
@@ -177,36 +196,54 @@ async function blockFromNode(
 ): Promise<Block[]> {
 	const tag = el.tagName;
 
-	// Mermaid has no clean path into OOXML without rasterising an SVG, so it is
-	// dropped loudly rather than rendered as its own source text.
-	if (el.hasClass('mermaid') || el.querySelector('.mermaid')) {
+	// These three tests are deliberately narrow. Matching anywhere inside the
+	// element would mean a list, callout or paragraph that merely *contains* an
+	// image became that image, and one holding a diagram vanished along with
+	// all its sibling text — silently, which is the one failure mode this
+	// exporter is built to avoid.
+	if (isStandalone(el, isMermaid)) {
 		ctx.skipped.add('Mermaid diagrams');
 		return [];
 	}
 
-	// A note transclusion is dropped per the export's rules; an image embed is
-	// not, so they are told apart before either is skipped.
-	const embed = el.hasClass('internal-embed') ? el : el.querySelector('.internal-embed');
-	if (embed && !embed.hasClass('image-embed') && embed.querySelector('.markdown-embed')) {
+	if (isStandalone(el, isNoteEmbed)) {
 		ctx.skipped.add('Embedded notes');
 		return [];
 	}
 
-	const image = await imageFromNode(el, ctx);
-	if (image) return [image];
+	if (isStandalone(el, isImage)) {
+		const image = await imageFromNode(el, ctx);
+		return image ? [image] : [];
+	}
 
 	const heading = HEADINGS[tag];
 	if (heading !== undefined) {
 		return [{ type: 'heading', level: heading, inlines: inlinesFrom(el, {}, footnoteBase) }];
 	}
 
+	// A paragraph can hold text *and* an image. The model has no inline image,
+	// so the text becomes a paragraph and each image follows it as its own
+	// block, rather than one of the two being dropped.
 	if (tag === 'P') {
+		const out: Block[] = [];
 		const inlines = inlinesFrom(el, {}, footnoteBase);
-		return hasText(inlines) ? [{ type: 'para', inlines }] : [];
+		if (hasText(inlines)) out.push({ type: 'para', inlines });
+
+		for (const img of Array.from(el.querySelectorAll('img'))) {
+			const image = await imageFromNode(img.closest('.internal-embed') ?? img, ctx);
+			if (image) out.push(image);
+		}
+		return out;
+	}
+
+	// Lists and tables are walked by their own readers, which only collect
+	// inline runs, so an image inside one has nowhere to go.
+	if ((tag === 'UL' || tag === 'OL' || tag === 'TABLE') && el.querySelector('img')) {
+		ctx.skipped.add('Images inside lists and tables');
 	}
 
 	if (tag === 'UL' || tag === 'OL') {
-		return [{ type: 'list', ordered: tag === 'OL', items: listItems(el, 0, footnoteBase) }];
+		return [{ type: 'list', items: listItems(el, 0, footnoteBase, ctx) }];
 	}
 
 	if (tag === 'TABLE') return [tableFrom(el, ctx, footnoteBase)];
@@ -245,6 +282,39 @@ function hasText(inlines: Inline[]): boolean {
 	return inlines.some((run) => run.text.trim().length > 0 || run.footnote !== undefined);
 }
 
+const isMermaid = (el: HTMLElement): boolean => el.hasClass('mermaid');
+
+const isNoteEmbed = (el: HTMLElement): boolean =>
+	el.hasClass('internal-embed') &&
+	!el.hasClass('image-embed') &&
+	el.querySelector('.markdown-embed') !== null;
+
+const isImage = (el: HTMLElement): boolean =>
+	el.instanceOf(HTMLImageElement) ||
+	(el.hasClass('internal-embed') && el.hasClass('image-embed'));
+
+/**
+ * True when the element either is the thing being matched, or is a paragraph
+ * wrapping nothing but it. Obsidian puts a lone embed in its own `<p>`, so that
+ * second case is the common one; anything richer is a container and has to be
+ * descended into instead of replaced.
+ */
+function isStandalone(el: HTMLElement, match: (candidate: HTMLElement) => boolean): boolean {
+	if (match(el)) return true;
+	if (el.tagName !== 'P') return false;
+
+	const meaningful = Array.from(el.childNodes).filter(
+		(node) => node.nodeType !== Node.TEXT_NODE || (node.textContent ?? '').trim().length > 0,
+	);
+	const only = meaningful[0];
+
+	return (
+		meaningful.length === 1 &&
+		only?.nodeType === Node.ELEMENT_NODE &&
+		match(only as HTMLElement)
+	);
+}
+
 async function imageFromNode(el: HTMLElement, ctx: Context): Promise<Block | null> {
 	const img = el.instanceOf(HTMLImageElement) ? el : el.querySelector('img');
 	if (!img) return null;
@@ -279,8 +349,17 @@ async function imageFromNode(el: HTMLElement, ctx: Context): Promise<Block | nul
 	};
 }
 
-function listItems(list: HTMLElement, level: number, footnoteBase: number): ListItem[] {
+function listItems(
+	list: HTMLElement,
+	level: number,
+	footnoteBase: number,
+	ctx: Context,
+): ListItem[] {
 	const items: ListItem[] = [];
+	// Per source list, so items of one list share numbering while a sibling
+	// list restarts — and so a nested list of the other kind keeps its own type.
+	const listId = ctx.nextListId++;
+	const ordered = list.tagName === 'OL';
 
 	for (const li of Array.from(list.children)) {
 		if (li.tagName !== 'LI') continue;
@@ -305,10 +384,10 @@ function listItems(list: HTMLElement, level: number, footnoteBase: number): List
 			(node) => node.tagName === 'UL' || node.tagName === 'OL' || node.tagName === 'INPUT',
 		);
 
-		if (hasText(inlines) || task) items.push({ inlines, level, task });
+		if (hasText(inlines) || task) items.push({ inlines, level, task, ordered, listId });
 
 		for (const child of nested) {
-			items.push(...listItems(child as HTMLElement, level + 1, footnoteBase));
+			items.push(...listItems(child as HTMLElement, level + 1, footnoteBase, ctx));
 		}
 	}
 
@@ -341,9 +420,28 @@ function tableFrom(table: HTMLElement, ctx: Context, footnoteBase: number): Bloc
 
 	// Widths come from the source comment, which reading view renders away, so
 	// they are matched to tables by document order rather than read from here.
-	const declared = ctx.widths[ctx.tableIndex++] ?? undefined;
+	const candidate = ctx.countTables ? (ctx.widths[ctx.tableIndex++] ?? undefined) : undefined;
 
-	return { type: 'table', header, rows: body, align, widths: declared ?? undefined };
+	// A declaration whose count does not match the table would leave a header
+	// cell at zero width and give the body rows a different number of cells
+	// than the header, so it is discarded in favour of the heuristic.
+	const declared = candidate?.length === header.length ? candidate : undefined;
+	if (candidate && !declared) ctx.skipped.add('Table widths with the wrong column count');
+
+	return { type: 'table', header, rows: body, align, widths: declared };
+}
+
+/**
+ * Obsidian has spelled footnote references more than one way across versions,
+ * so all three markers it has used are accepted — but every one of them is a
+ * positive signal, which a bare `<sup>` is not.
+ */
+function isFootnoteRef(el: HTMLElement): boolean {
+	return (
+		el.hasClass('footnote-ref') ||
+		el.hasAttribute('data-footnote-id') ||
+		(el.tagName === 'SUP' && el.querySelector('a[href^="#fn"]') !== null)
+	);
 }
 
 function inlinesFrom(
@@ -370,7 +468,12 @@ function inlinesFrom(
 
 		// A footnote reference is a marker, not text: the number Obsidian has
 		// already rendered is the index into the collected bodies.
-		if (el.hasClass('footnote-ref') || tag === 'SUP') {
+		//
+		// Matched structurally rather than by tag. Treating every `<sup>` as a
+		// reference would turn raw HTML like `x<sup>2</sup>` into a reference to
+		// footnote 2 — which usually does not exist, leaving a `w:id` with no
+		// matching `w:footnote` and a file Word calls unreadable.
+		if (isFootnoteRef(el)) {
 			const index = Number.parseInt(el.textContent ?? '', 10);
 			if (Number.isFinite(index)) {
 				out.push({ text: '', footnote: footnoteBase + index });

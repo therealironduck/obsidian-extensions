@@ -10,13 +10,14 @@ import { Notice, type App, type TFile } from 'obsidian';
 import { zipSync } from 'fflate';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { access, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { buildBlocks } from './from-dom';
 import {
 	buildContentTypes,
 	buildDocument,
 	buildDocumentRels,
 	buildFooter,
+	buildFootnoteRels,
 	buildRootRels,
 	buildStyles,
 } from './ooxml';
@@ -59,6 +60,8 @@ export async function exportNote(
 		const built = buildDocument(doc);
 		const encode = (value: string): Uint8Array => new TextEncoder().encode(value);
 
+		const media = [...built.media.entries(), ...built.footnoteMedia.entries()];
+
 		const archive = zipSync(
 			{
 				'[Content_Types].xml': encode(buildContentTypes()),
@@ -69,15 +72,19 @@ export async function exportNote(
 				'word/footnotes.xml': encode(built.footnotes),
 				'word/footer1.xml': encode(buildFooter(doc.footer)),
 				'word/_rels/document.xml.rels': encode(buildDocumentRels(built.rels, built.media)),
+				// Relationship ids resolve against the part that uses them, so
+				// links and images inside a footnote need this part to exist.
+				'word/_rels/footnotes.xml.rels': encode(
+					buildFootnoteRels(built.footnoteRels, built.footnoteMedia),
+				),
 				...Object.fromEntries(
-					built.media.entries().map((entry) => [`word/media/${entry.name}`, entry.data]),
+					media.map((entry) => [`word/media/${entry.name}`, entry.data]),
 				),
 			},
 			{ level: 6 },
 		);
 
-		const target = await uniquePath(resolveFolder(settings), sanitize(title));
-		await writeFile(target, archive);
+		const target = await writeUnique(resolveFolder(settings), sanitize(title), archive);
 
 		notice.hide();
 		report(target, skipped);
@@ -146,20 +153,33 @@ function sanitize(name: string): string {
 /**
  * Counts up rather than overwriting, so re-exporting while iterating never
  * destroys a file that was already handed to someone.
+ *
+ * The candidate is claimed by the write itself, with `wx`, rather than being
+ * checked first and written later. Testing and then writing leaves a gap in
+ * which a second export picks the same name and the later write silently
+ * replaces the earlier file — which is exactly what this function promises not
+ * to do.
  */
-async function uniquePath(folder: string, name: string): Promise<string> {
+async function writeUnique(folder: string, name: string, data: Uint8Array): Promise<string> {
 	for (let index = 0; index < 1000; index++) {
 		const candidate = join(
 			folder,
 			index === 0 ? `${name}.docx` : `${name} (${String(index)}).docx`,
 		);
 		try {
-			await access(candidate);
-		} catch {
+			await writeFile(candidate, data, { flag: 'wx' });
 			return candidate;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 		}
 	}
-	return join(folder, `${name} ${String(Date.now())}.docx`);
+
+	// A thousand collisions means something is very wrong, but a timestamp
+	// alone still collides within the same millisecond, so add entropy.
+	const suffix = `${String(Date.now())}-${Math.random().toString(36).slice(2, 8)}`;
+	const fallback = join(folder, `${name} ${suffix}.docx`);
+	await writeFile(fallback, data, { flag: 'wx' });
+	return fallback;
 }
 
 function stripFrontmatter(source: string): string {
@@ -205,6 +225,11 @@ const WIDTHS_RE = /^%%\s*docx-widths:\s*([\d\s.]+?)\s*%%$/;
  * Reading view renders `%%` comments away, so the widths cannot be recovered
  * from the DOM. They are read from the source instead and matched to tables by
  * document order, which the renderer preserves.
+ *
+ * Blockquote markers are stripped before matching, because a table inside a
+ * callout reaches the DOM as a `<table>` like any other. Counting only
+ * unquoted tables here would leave this list one entry short and hand every
+ * later table the declaration meant for its predecessor.
  */
 export function collectTableWidths(source: string): (number[] | null)[] {
 	const out: (number[] | null)[] = [];
@@ -213,7 +238,7 @@ export function collectTableWidths(source: string): (number[] | null)[] {
 	let inTable = false;
 
 	for (const line of source.split('\n')) {
-		const trimmed = line.trim();
+		const trimmed = line.trim().replace(/^(?:>\s*)+/, '');
 
 		if (/^(`{3,}|~{3,})/.test(trimmed)) {
 			inCode = !inCode;
