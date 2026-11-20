@@ -19,7 +19,7 @@ import { Component, MarkdownRenderer, type App, type TFile } from 'obsidian';
 import { linesFromString, parsePanels } from '../panels/parse';
 import { resolveVariant } from '../panels/variants';
 import type { Block, Footnote, Inline, ListItem } from './model';
-import { tableKey, type WidthDeclaration } from './table-widths';
+import { declarationKey, tableKey, type WidthDeclaration } from './table-widths';
 
 export interface WalkResult {
 	blocks: Block[];
@@ -35,11 +35,16 @@ interface Context {
 	host: HTMLElement;
 	footnotes: Footnote[];
 	skipped: Set<string>;
+	/** Declared widths, by header plus how many tables shared that header. */
+	widths: Map<string, number[]>;
+	/** Tables seen so far per header, counted the same way the scanner counts. */
+	tableCounts: Map<string, number>;
 	/**
-	 * Declared widths, keyed by table header rather than by position. Several
-	 * tables can share a header, so each key holds a queue consumed in order.
+	 * True while footnote bodies are walked. Those are visited before the
+	 * content that precedes them in the source, so tables inside them are
+	 * ignored here exactly as the scanner ignores them.
 	 */
-	widths: Map<string, number[][]>;
+	inFootnote: boolean;
 	/** Counter handing each source list its own identity. */
 	nextListId: number;
 }
@@ -53,11 +58,9 @@ export async function buildBlocks(
 	const component = new Component();
 	component.load();
 
-	const widths = new Map<string, number[][]>();
+	const widths = new Map<string, number[]>();
 	for (const declaration of declarations) {
-		const queue = widths.get(declaration.key) ?? [];
-		queue.push(declaration.widths);
-		widths.set(declaration.key, queue);
+		widths.set(declarationKey(declaration.key, declaration.occurrence), declaration.widths);
 	}
 
 	// Attached rather than detached: some renderers measure layout and produce
@@ -72,6 +75,8 @@ export async function buildBlocks(
 		footnotes: [],
 		skipped: new Set(),
 		widths,
+		tableCounts: new Map(),
+		inFootnote: false,
 		nextListId: 0,
 	};
 
@@ -154,12 +159,18 @@ async function extractFootnotes(el: HTMLElement, ctx: Context): Promise<void> {
 	const section = el.querySelector('section.footnotes, div.footnotes');
 	if (!section) return;
 
-	for (const item of Array.from(section.querySelectorAll('ol > li'))) {
-		// The back-reference arrow is navigation, not content.
-		for (const back of Array.from(item.querySelectorAll('a.footnote-backref'))) {
-			back.remove();
+	const outer = ctx.inFootnote;
+	ctx.inFootnote = true;
+	try {
+		for (const item of Array.from(section.querySelectorAll('ol > li'))) {
+			// The back-reference arrow is navigation, not content.
+			for (const back of Array.from(item.querySelectorAll('a.footnote-backref'))) {
+				back.remove();
+			}
+			ctx.footnotes.push({ blocks: await blocksFromChildren(item as HTMLElement, ctx, 0) });
 		}
-		ctx.footnotes.push({ blocks: await blocksFromChildren(item as HTMLElement, ctx, 0) });
+	} finally {
+		ctx.inFootnote = outer;
 	}
 	section.remove();
 }
@@ -416,12 +427,19 @@ function tableFrom(table: HTMLElement, ctx: Context, footnoteBase: number): Bloc
 			),
 		);
 
-	// Declared widths are found by header text, not by counting tables: see
-	// table-widths.ts for why position proved impossible to keep in step.
+	// Declared widths are found by header text plus how many tables have already
+	// carried that header — see table-widths.ts for why neither alone works.
+	// Footnote tables are skipped on both sides, so they cannot shift a count.
 	const key = headRow
 		? tableKey(Array.from(headRow.children).map((cell) => cell.textContent ?? ''))
 		: '';
-	const candidate = ctx.widths.get(key)?.shift();
+
+	let candidate: number[] | undefined;
+	if (!ctx.inFootnote) {
+		const occurrence = ctx.tableCounts.get(key) ?? 0;
+		ctx.tableCounts.set(key, occurrence + 1);
+		candidate = ctx.widths.get(declarationKey(key, occurrence));
+	}
 
 	// A declaration whose count does not match the table would leave a header
 	// cell at zero width and give the body rows a different number of cells

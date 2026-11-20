@@ -12,10 +12,20 @@
  * body. Every disagreement silently shifted every later declaration onto the
  * wrong table.
  *
- * So declarations are keyed by their table's header instead. A key that never
- * matches simply falls back to the width heuristic, which is a harmless
- * outcome rather than a corrupted one, and no future table syntax can shift a
- * declaration onto its neighbour.
+ * So declarations are keyed by their table's header instead, plus a count of
+ * how many earlier tables shared that header. Repeated headers are not an edge
+ * case — the document this theme came from has two different tables headed
+ * "Topic | Rule" — so the key alone would hand the first one the second one's
+ * widths.
+ *
+ * Counting per header rather than over all tables is what makes this hold: the
+ * scanner and the walk only have to agree about tables sharing one header, not
+ * about every table in the note. Where they cannot agree at all — footnote
+ * bodies, which the walk visits before the content that precedes them in the
+ * source — both sides ignore tables outright.
+ *
+ * A key that never matches falls back to the width heuristic, which is a
+ * harmless outcome rather than a corrupted one.
  */
 
 import { TEXT_WIDTH } from './theme';
@@ -23,8 +33,19 @@ import { TEXT_WIDTH } from './theme';
 export interface WidthDeclaration {
 	/** Normalised header text of the table this was written for. */
 	key: string;
+	/** How many earlier tables shared that header, so repeats stay distinct. */
+	occurrence: number;
 	/** Column widths in twips, already summing to the text width. */
 	widths: number[];
+}
+
+/**
+ * The identity a declaration and its table are matched on. Separated by a
+ * control character so a header ending in digits cannot collide with a later
+ * occurrence of a shorter one.
+ */
+export function declarationKey(key: string, occurrence: number): string {
+	return `${key}\u0001${String(occurrence)}`;
 }
 
 export interface WidthScan {
@@ -98,22 +119,41 @@ function clean(line: string): string {
 	return line.trim().replace(/^(?:>\s*)+/, '');
 }
 
+const FOOTNOTE_DEF_RE = /^\[\^[^\]]+\]:/;
+
 export function collectTableWidths(source: string): WidthScan {
 	const declarations: WidthDeclaration[] = [];
 	const warnings: string[] = [];
 	const lines = source.split('\n');
+	/** Tables seen so far per header, which is what makes a repeat addressable. */
+	const seen = new Map<string, number>();
 
 	let pending: number[] | null = null;
 	let inCode = false;
+	let inFootnote = false;
 
 	for (let index = 0; index < lines.length; index++) {
-		const line = clean(lines[index] ?? '');
+		const raw = lines[index] ?? '';
+		const line = clean(raw);
 
 		if (/^(`{3,}|~{3,})/.test(line)) {
 			inCode = !inCode;
 			continue;
 		}
 		if (inCode) continue;
+
+		// A footnote definition runs until the first line that is neither blank
+		// nor indented. Everything in it is ignored, because the walk reaches
+		// footnote bodies before the content above them and the two could never
+		// count the same tables in the same order.
+		if (FOOTNOTE_DEF_RE.test(raw)) {
+			inFootnote = true;
+			continue;
+		}
+		if (inFootnote) {
+			if (line.length === 0 || /^\s/.test(raw)) continue;
+			inFootnote = false;
+		}
 
 		const declared = WIDTHS_RE.exec(line);
 		if (declared) {
@@ -126,8 +166,15 @@ export function collectTableWidths(source: string): WidthScan {
 
 		// A header row, in either GFM form: `| a | b |` or a bare `a | b`.
 		if (line.includes('|') && isDelimiterRow(clean(lines[index + 1] ?? ''))) {
+			const key = tableKey(splitCells(line));
+			const occurrence = seen.get(key) ?? 0;
+			seen.set(key, occurrence + 1);
+
+			// Counted whether or not it is declared: an undeclared table still
+			// occupies an occurrence, so the next one with the same header is
+			// addressable.
 			if (pending !== null) {
-				declarations.push({ key: tableKey(splitCells(line)), widths: pending });
+				declarations.push({ key, occurrence, widths: pending });
 				pending = null;
 			}
 			continue;
