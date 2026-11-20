@@ -21,7 +21,7 @@ import {
 	buildRootRels,
 	buildStyles,
 } from './ooxml';
-import { TEXT_WIDTH } from './theme';
+import { collectTableWidths } from './table-widths';
 import type { DocxExportSettings } from './settings';
 
 export async function exportNote(
@@ -39,11 +39,12 @@ export async function exportNote(
 		const variables = { title, file: file.basename };
 
 		const body = stripFrontmatter(source);
+		const scan = collectTableWidths(body);
 		const { blocks, footnotes, skipped } = await buildBlocks(
 			app,
 			file,
 			body,
-			collectTableWidths(body),
+			scan.declarations,
 		);
 
 		const doc = {
@@ -87,7 +88,7 @@ export async function exportNote(
 		const target = await writeUnique(resolveFolder(settings), sanitize(title), archive);
 
 		notice.hide();
-		report(target, skipped);
+		report(target, [...new Set([...skipped, ...scan.warnings])]);
 	} catch (error) {
 		notice.hide();
 		console.error('DOCX export failed', error);
@@ -217,63 +218,4 @@ function applyVariables(text: string, context: { title: string; file: string }):
 		.replace(/\{\{date\}\}/g, date)
 		.replace(/\{\{title\}\}/g, context.title)
 		.replace(/\{\{file\}\}/g, context.file);
-}
-
-const WIDTHS_RE = /^%%\s*docx-widths:\s*([\d\s.]+?)\s*%%$/;
-
-/**
- * Reading view renders `%%` comments away, so the widths cannot be recovered
- * from the DOM. They are read from the source instead and matched to tables by
- * document order, which the renderer preserves.
- *
- * Blockquote markers are stripped before matching, because a table inside a
- * callout reaches the DOM as a `<table>` like any other. Counting only
- * unquoted tables here would leave this list one entry short and hand every
- * later table the declaration meant for its predecessor.
- */
-export function collectTableWidths(source: string): (number[] | null)[] {
-	const out: (number[] | null)[] = [];
-	let pending: number[] | null = null;
-	let inCode = false;
-	let inTable = false;
-
-	for (const line of source.split('\n')) {
-		const trimmed = line.trim().replace(/^(?:>\s*)+/, '');
-
-		if (/^(`{3,}|~{3,})/.test(trimmed)) {
-			inCode = !inCode;
-			continue;
-		}
-		if (inCode) continue;
-
-		const declared = WIDTHS_RE.exec(trimmed);
-		if (declared) {
-			const percents = (declared[1] ?? '')
-				.split(/\s+/)
-				.map(Number)
-				.filter((n) => n > 0);
-			const sum = percents.reduce((a, b) => a + b, 0);
-			pending =
-				sum > 0
-					? percents.map((percent) => Math.round((percent / sum) * TEXT_WIDTH))
-					: null;
-			continue;
-		}
-
-		if (trimmed.startsWith('|')) {
-			if (!inTable) {
-				out.push(pending);
-				pending = null;
-				inTable = true;
-			}
-			continue;
-		}
-
-		inTable = false;
-		// A blank line between the comment and its table is fine; anything else
-		// means the comment was not about a table after all.
-		if (trimmed.length > 0) pending = null;
-	}
-
-	return out;
 }

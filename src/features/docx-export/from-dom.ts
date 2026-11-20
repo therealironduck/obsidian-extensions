@@ -19,6 +19,7 @@ import { Component, MarkdownRenderer, type App, type TFile } from 'obsidian';
 import { linesFromString, parsePanels } from '../panels/parse';
 import { resolveVariant } from '../panels/variants';
 import type { Block, Footnote, Inline, ListItem } from './model';
+import { tableKey, type WidthDeclaration } from './table-widths';
 
 export interface WalkResult {
 	blocks: Block[];
@@ -34,15 +35,11 @@ interface Context {
 	host: HTMLElement;
 	footnotes: Footnote[];
 	skipped: Set<string>;
-	/** Explicit `%% docx-widths %%` values, consumed in table order. */
-	widths: (number[] | null)[];
-	tableIndex: number;
 	/**
-	 * False while footnote bodies are walked. Those are lifted out ahead of the
-	 * main content, so a table inside one would otherwise consume the width
-	 * declaration meant for a table further down the note.
+	 * Declared widths, keyed by table header rather than by position. Several
+	 * tables can share a header, so each key holds a queue consumed in order.
 	 */
-	countTables: boolean;
+	widths: Map<string, number[][]>;
 	/** Counter handing each source list its own identity. */
 	nextListId: number;
 }
@@ -51,10 +48,17 @@ export async function buildBlocks(
 	app: App,
 	file: TFile,
 	body: string,
-	widths: (number[] | null)[],
+	declarations: WidthDeclaration[],
 ): Promise<WalkResult> {
 	const component = new Component();
 	component.load();
+
+	const widths = new Map<string, number[][]>();
+	for (const declaration of declarations) {
+		const queue = widths.get(declaration.key) ?? [];
+		queue.push(declaration.widths);
+		widths.set(declaration.key, queue);
+	}
 
 	// Attached rather than detached: some renderers measure layout and produce
 	// nothing at all in an orphaned element.
@@ -68,8 +72,6 @@ export async function buildBlocks(
 		footnotes: [],
 		skipped: new Set(),
 		widths,
-		tableIndex: 0,
-		countTables: true,
 		nextListId: 0,
 	};
 
@@ -152,18 +154,12 @@ async function extractFootnotes(el: HTMLElement, ctx: Context): Promise<void> {
 	const section = el.querySelector('section.footnotes, div.footnotes');
 	if (!section) return;
 
-	const counting = ctx.countTables;
-	ctx.countTables = false;
-	try {
-		for (const item of Array.from(section.querySelectorAll('ol > li'))) {
-			// The back-reference arrow is navigation, not content.
-			for (const back of Array.from(item.querySelectorAll('a.footnote-backref'))) {
-				back.remove();
-			}
-			ctx.footnotes.push({ blocks: await blocksFromChildren(item as HTMLElement, ctx, 0) });
+	for (const item of Array.from(section.querySelectorAll('ol > li'))) {
+		// The back-reference arrow is navigation, not content.
+		for (const back of Array.from(item.querySelectorAll('a.footnote-backref'))) {
+			back.remove();
 		}
-	} finally {
-		ctx.countTables = counting;
+		ctx.footnotes.push({ blocks: await blocksFromChildren(item as HTMLElement, ctx, 0) });
 	}
 	section.remove();
 }
@@ -218,7 +214,7 @@ async function blockFromNode(
 
 	const heading = HEADINGS[tag];
 	if (heading !== undefined) {
-		return [{ type: 'heading', level: heading, inlines: inlinesFrom(el, {}, footnoteBase) }];
+		return [{ type: 'heading', level: heading, inlines: inlinesFrom(el, ctx, footnoteBase) }];
 	}
 
 	// A paragraph can hold text *and* an image. The model has no inline image,
@@ -226,10 +222,12 @@ async function blockFromNode(
 	// block, rather than one of the two being dropped.
 	if (tag === 'P') {
 		const out: Block[] = [];
-		const inlines = inlinesFrom(el, {}, footnoteBase);
+		const inlines = inlinesFrom(el, ctx, footnoteBase);
 		if (hasText(inlines)) out.push({ type: 'para', inlines });
 
 		for (const img of Array.from(el.querySelectorAll('img'))) {
+			// An image belonging to a transcluded note goes with the note.
+			if (img.closest('.markdown-embed')) continue;
 			const image = await imageFromNode(img.closest('.internal-embed') ?? img, ctx);
 			if (image) out.push(image);
 		}
@@ -274,7 +272,7 @@ async function blockFromNode(
 	// into rather than dropped.
 	if (el.children.length > 0) return blocksFromChildren(el, ctx, footnoteBase);
 
-	const inlines = inlinesFrom(el, {}, footnoteBase);
+	const inlines = inlinesFrom(el, ctx, footnoteBase);
 	return hasText(inlines) ? [{ type: 'para', inlines }] : [];
 }
 
@@ -379,7 +377,7 @@ function listItems(
 
 		const inlines = inlinesFrom(
 			li as HTMLElement,
-			{},
+			ctx,
 			footnoteBase,
 			(node) => node.tagName === 'UL' || node.tagName === 'OL' || node.tagName === 'INPUT',
 		);
@@ -399,7 +397,7 @@ function tableFrom(table: HTMLElement, ctx: Context, footnoteBase: number): Bloc
 	const headRow = rows[0];
 	const header = headRow
 		? Array.from(headRow.children).map((cell) =>
-				inlinesFrom(cell as HTMLElement, {}, footnoteBase),
+				inlinesFrom(cell as HTMLElement, ctx, footnoteBase),
 			)
 		: [];
 
@@ -414,13 +412,16 @@ function tableFrom(table: HTMLElement, ctx: Context, footnoteBase: number): Bloc
 		.slice(1)
 		.map((row) =>
 			Array.from(row.children).map((cell) =>
-				inlinesFrom(cell as HTMLElement, {}, footnoteBase),
+				inlinesFrom(cell as HTMLElement, ctx, footnoteBase),
 			),
 		);
 
-	// Widths come from the source comment, which reading view renders away, so
-	// they are matched to tables by document order rather than read from here.
-	const candidate = ctx.countTables ? (ctx.widths[ctx.tableIndex++] ?? undefined) : undefined;
+	// Declared widths are found by header text, not by counting tables: see
+	// table-widths.ts for why position proved impossible to keep in step.
+	const key = headRow
+		? tableKey(Array.from(headRow.children).map((cell) => cell.textContent ?? ''))
+		: '';
+	const candidate = ctx.widths.get(key)?.shift();
 
 	// A declaration whose count does not match the table would leave a header
 	// cell at zero width and give the body rows a different number of cells
@@ -446,7 +447,7 @@ function isFootnoteRef(el: HTMLElement): boolean {
 
 function inlinesFrom(
 	root: HTMLElement,
-	style: Partial<Inline>,
+	ctx: Context,
 	footnoteBase: number,
 	exclude?: (el: HTMLElement) => boolean,
 ): Inline[] {
@@ -462,6 +463,19 @@ function inlinesFrom(
 
 		const el = node as HTMLElement;
 		if (exclude?.(el)) return;
+
+		// An embed sharing a line with text never reaches the block-level tests,
+		// so it is caught here too. Descending into one would splice the whole
+		// transcluded note into the sentence as bare text, which is neither what
+		// the reader expects nor what the export promises.
+		if (isNoteEmbed(el)) {
+			ctx.skipped.add('Embedded notes');
+			return;
+		}
+		if (isMermaid(el)) {
+			ctx.skipped.add('Mermaid diagrams');
+			return;
+		}
 
 		const tag = el.tagName;
 		let next = inherited;
@@ -499,6 +513,6 @@ function inlinesFrom(
 		for (const child of Array.from(el.childNodes)) visit(child, next);
 	};
 
-	for (const child of Array.from(root.childNodes)) visit(child, style);
+	for (const child of Array.from(root.childNodes)) visit(child, {});
 	return out;
 }
