@@ -157,6 +157,45 @@ check(
 	[0],
 );
 
+// --- indented code blocks ---------------------------------------------------
+
+// Four-space indentation at the left margin is an indented code block, so its
+// table-shaped lines stay literal and never become a table in the DOM.
+check(
+	'an indented code block is not counted as a table',
+	occurrences(
+		collectTableWidths(
+			'    A | B\n    -- | --\n    1 | 2\n\n%% docx-widths: 30 70 %%\nA | B\n-- | --\n3 | 4\n\nA | B\n-- | --\n5 | 6',
+		).declarations,
+	),
+	[0],
+);
+
+// ...but the same indentation inside a list item is ordinary content, because
+// indented code is four columns past the container, not past the margin.
+check(
+	'a table indented inside a list item still counts',
+	occurrences(
+		collectTableWidths('- item\n\n  %% docx-widths: 30 70 %%\n  A | B\n  -- | --\n  1 | 2')
+			.declarations,
+	),
+	[0],
+);
+
+check(
+	'a table in a four-space list item still counts',
+	collectTableWidths('1.  item\n\n    %% docx-widths: 30 70 %%\n    A | B\n    -- | --')
+		.declarations.length,
+	1,
+);
+
+check(
+	'a fenced code block is still not counted',
+	collectTableWidths('```\nA | B\n-- | --\n```\n\n%% docx-widths: 30 70 %%\nA | B\n-- | --')
+		.declarations[0]?.occurrence,
+	0,
+);
+
 // --- the pairing the walk performs ------------------------------------------
 
 // Mirrors `tableFrom`: count tables per header, look the declaration up by

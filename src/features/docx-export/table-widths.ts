@@ -114,10 +114,20 @@ function parseWidths(text: string): number[] | null {
 	return widths;
 }
 
-/** Blockquote markers are stripped so a declaration inside a callout still counts. */
-function clean(line: string): string {
-	return line.trim().replace(/^(?:>\s*)+/, '');
+/**
+ * Strips blockquote markers but keeps whatever indentation follows them, so a
+ * declaration inside a callout still counts while an indented code block inside
+ * one is still recognisable as code.
+ */
+function dequote(line: string): string {
+	return line.replace(/^[ \t]*(?:>[ \t]?)+/, '');
 }
+
+function indentOf(line: string): number {
+	return (/^[ \t]*/.exec(line)?.[0] ?? '').replace(/\t/g, '    ').length;
+}
+
+const LIST_MARKER_RE = /^(?:[-*+]|\d+[.)])\s+/;
 
 const FOOTNOTE_DEF_RE = /^\[\^[^\]]+\]:/;
 
@@ -131,10 +141,19 @@ export function collectTableWidths(source: string): WidthScan {
 	let pending: number[] | null = null;
 	let inCode = false;
 	let inFootnote = false;
+	/**
+	 * Column at which content of the current list item begins. Indented code is
+	 * four columns past the enclosing container's content, not four past the
+	 * left margin, so a table indented inside a list is content while the same
+	 * indentation at top level is code.
+	 */
+	let baseline = 0;
 
 	for (let index = 0; index < lines.length; index++) {
 		const raw = lines[index] ?? '';
-		const line = clean(raw);
+		const body = dequote(raw);
+		const indent = indentOf(body);
+		const line = body.trim();
 
 		if (/^(`{3,}|~{3,})/.test(line)) {
 			inCode = !inCode;
@@ -155,6 +174,21 @@ export function collectTableWidths(source: string): WidthScan {
 			inFootnote = false;
 		}
 
+		if (line.length === 0) continue;
+
+		// An indented code block renders as literal text, so its table-shaped
+		// lines never become a table in the DOM and must not be counted here.
+		if (indent >= baseline + 4) {
+			pending = null;
+			continue;
+		}
+
+		// A list item moves the baseline to where its content starts; returning
+		// to the left margin leaves the list behind.
+		const marker = LIST_MARKER_RE.exec(line);
+		if (marker) baseline = indent + marker[0].length;
+		else if (indent === 0) baseline = 0;
+
 		const declared = WIDTHS_RE.exec(line);
 		if (declared) {
 			pending = parseWidths(declared[1] ?? '');
@@ -165,7 +199,7 @@ export function collectTableWidths(source: string): WidthScan {
 		}
 
 		// A header row, in either GFM form: `| a | b |` or a bare `a | b`.
-		if (line.includes('|') && isDelimiterRow(clean(lines[index + 1] ?? ''))) {
+		if (line.includes('|') && isDelimiterRow(dequote(lines[index + 1] ?? '').trim())) {
 			const key = tableKey(splitCells(line));
 			const occurrence = seen.get(key) ?? 0;
 			seen.set(key, occurrence + 1);
@@ -180,9 +214,10 @@ export function collectTableWidths(source: string): WidthScan {
 			continue;
 		}
 
-		// A blank line between a declaration and its table is fine; any other
-		// content means the declaration was not about a table after all.
-		if (line.length > 0) pending = null;
+		// A blank line between a declaration and its table is fine and was
+		// skipped above; reaching here means some other content intervened, so
+		// the declaration was not about a table after all.
+		pending = null;
 	}
 
 	return { declarations, warnings };
