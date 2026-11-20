@@ -20,9 +20,14 @@
  *
  * Counting per header rather than over all tables is what makes this hold: the
  * scanner and the walk only have to agree about tables sharing one header, not
- * about every table in the note. Where they cannot agree at all — footnote
- * bodies, which the walk visits before the content that precedes them in the
- * source — both sides ignore tables outright.
+ * about every table in the note. Where they cannot agree at all, both sides
+ * ignore tables outright — footnote bodies, which the walk visits before the
+ * content preceding them in the source, and list items, where the walk
+ * flattens a table to text rather than reading it as one.
+ *
+ * `createWidthLookup` is the matching half, kept here rather than in the walk
+ * so the two cannot drift apart and so the pairing stays testable without an
+ * Obsidian instance.
  *
  * A key that never matches falls back to the width heuristic, which is a
  * harmless outcome rather than a corrupted one.
@@ -52,6 +57,39 @@ export interface WidthScan {
 	declarations: WidthDeclaration[];
 	/** Problems worth telling the user about after the export. */
 	warnings: string[];
+}
+
+/** Hands out declared widths as the walk meets each table. */
+export interface WidthLookup {
+	/**
+	 * Claims the next declaration for a table with this header, counting the
+	 * table whether or not one was declared.
+	 */
+	take(headerCells: string[]): number[] | undefined;
+}
+
+/**
+ * The matching half of the scanner, owned here rather than in the DOM walk so
+ * the two halves of the pairing cannot drift apart — and so the pairing can be
+ * exercised directly, without an Obsidian instance to render into.
+ */
+export function createWidthLookup(declarations: WidthDeclaration[]): WidthLookup {
+	const byKey = new Map(
+		declarations.map((declaration) => [
+			declarationKey(declaration.key, declaration.occurrence),
+			declaration.widths,
+		]),
+	);
+	const counts = new Map<string, number>();
+
+	return {
+		take(headerCells) {
+			const key = tableKey(headerCells);
+			const occurrence = counts.get(key) ?? 0;
+			counts.set(key, occurrence + 1);
+			return byKey.get(declarationKey(key, occurrence));
+		},
+	};
 }
 
 const WIDTHS_RE = /^%%\s*docx-widths:\s*([^%]+?)\s*%%$/;
@@ -200,6 +238,14 @@ export function collectTableWidths(source: string): WidthScan {
 
 		// A header row, in either GFM form: `| a | b |` or a bare `a | b`.
 		if (line.includes('|') && isDelimiterRow(dequote(lines[index + 1] ?? '').trim())) {
+			// A table inside a list item is flattened to text by the walk and
+			// never reaches the table reader, so counting it here would put the
+			// two out of step. Ignored on both sides, like footnote bodies.
+			if (baseline > 0) {
+				pending = null;
+				continue;
+			}
+
 			const key = tableKey(splitCells(line));
 			const occurrence = seen.get(key) ?? 0;
 			seen.set(key, occurrence + 1);

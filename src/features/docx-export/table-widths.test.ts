@@ -12,6 +12,7 @@
 
 import {
 	collectTableWidths,
+	createWidthLookup,
 	declarationKey,
 	tableKey,
 	type WidthDeclaration,
@@ -171,22 +172,22 @@ check(
 	[0],
 );
 
-// ...but the same indentation inside a list item is ordinary content, because
-// indented code is four columns past the container, not past the margin.
+// A table inside a list item is not counted either, but for a different
+// reason: it is real content — indented code is four columns past the
+// container, not past the margin — and the walk flattens it to text rather
+// than reading it as a table, so counting it here would desync the two.
 check(
-	'a table indented inside a list item still counts',
-	occurrences(
-		collectTableWidths('- item\n\n  %% docx-widths: 30 70 %%\n  A | B\n  -- | --\n  1 | 2')
-			.declarations,
-	),
-	[0],
+	'a table indented inside a list item is not counted',
+	collectTableWidths('- item\n\n  %% docx-widths: 30 70 %%\n  A | B\n  -- | --\n  1 | 2')
+		.declarations.length,
+	0,
 );
 
 check(
-	'a table in a four-space list item still counts',
+	'a table in a four-space list item is not counted',
 	collectTableWidths('1.  item\n\n    %% docx-widths: 30 70 %%\n    A | B\n    -- | --')
 		.declarations.length,
-	1,
+	0,
 );
 
 check(
@@ -198,24 +199,54 @@ check(
 
 // --- the pairing the walk performs ------------------------------------------
 
-// Mirrors `tableFrom`: count tables per header, look the declaration up by
-// header plus count. Proves the two halves agree without needing a real DOM.
-const paired = collectTableWidths(
-	'A | B\n-- | --\n1 | 2\n\n%% docx-widths: 30 70 %%\nA | B\n-- | --\n3 | 4',
+/**
+ * Drives the real lookup `tableFrom` uses, rather than a copy of its logic, so
+ * these checks fail if the two halves ever drift. The only thing standing in
+ * for the DOM is the list of header rows the walk would have met, in order.
+ */
+function pair(source: string, headersMet: string[][]): boolean[] {
+	const lookup = createWidthLookup(collectTableWidths(source).declarations);
+	return headersMet.map((cells) => lookup.take(cells) !== undefined);
+}
+
+const AB = ['A', 'B'];
+
+check(
+	'the declaration pairs with the second of two identical headers',
+	pair('A | B\n-- | --\n1 | 2\n\n%% docx-widths: 30 70 %%\nA | B\n-- | --\n3 | 4', [AB, AB]),
+	[false, true],
 );
-const lookup = new Map(
-	paired.declarations.map((declaration) => [
-		declarationKey(declaration.key, declaration.occurrence),
-		declaration.widths,
-	]),
+
+// The case this round reported: a table inside a list item is flattened by the
+// walk, so neither side counts it and the declaration still lands correctly.
+check(
+	'a table in a list item does not shift the pairing',
+	pair(
+		'- item\n\n  A | B\n  -- | --\n  1 | 2\n\n%% docx-widths: 30 70 %%\nA | B\n-- | --\n3 | 4\n\nA | B\n-- | --\n5 | 6',
+		[AB, AB],
+	),
+	[true, false],
 );
-const counts = new Map<string, number>();
-const walked = [tableKey(['A', 'B']), tableKey(['A', 'B'])].map((key) => {
-	const occurrence = counts.get(key) ?? 0;
-	counts.set(key, occurrence + 1);
-	return lookup.get(declarationKey(key, occurrence)) !== undefined;
-});
-check('the walk pairs the declaration with the second table', walked, [false, true]);
+
+check(
+	'an indented code block does not shift the pairing',
+	pair(
+		'    A | B\n    -- | --\n\n%% docx-widths: 30 70 %%\nA | B\n-- | --\n3 | 4\n\nA | B\n-- | --\n5 | 6',
+		[AB, AB],
+	),
+	[true, false],
+);
+
+// A quoted table does render, so it does take its turn.
+check(
+	'a quoted table takes its turn in the pairing',
+	pair('> A | B\n> -- | --\n\n%% docx-widths: 30 70 %%\nA | B\n-- | --', [AB, AB]),
+	[false, true],
+);
+
+check('a table with no declaration pairs with nothing', pair('A | B\n-- | --\n1 | 2', [AB]), [
+	false,
+]);
 
 if (failures > 0) {
 	console.error(`\n${String(failures)} check(s) failed`);

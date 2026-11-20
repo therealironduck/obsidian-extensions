@@ -19,7 +19,7 @@ import { Component, MarkdownRenderer, type App, type TFile } from 'obsidian';
 import { linesFromString, parsePanels } from '../panels/parse';
 import { resolveVariant } from '../panels/variants';
 import type { Block, Footnote, Inline, ListItem } from './model';
-import { declarationKey, tableKey, type WidthDeclaration } from './table-widths';
+import { createWidthLookup, type WidthDeclaration, type WidthLookup } from './table-widths';
 
 export interface WalkResult {
 	blocks: Block[];
@@ -35,10 +35,8 @@ interface Context {
 	host: HTMLElement;
 	footnotes: Footnote[];
 	skipped: Set<string>;
-	/** Declared widths, by header plus how many tables shared that header. */
-	widths: Map<string, number[]>;
-	/** Tables seen so far per header, counted the same way the scanner counts. */
-	tableCounts: Map<string, number>;
+	/** Declared widths, paired to tables by the scanner's own matching half. */
+	widths: WidthLookup;
 	/**
 	 * True while footnote bodies are walked. Those are visited before the
 	 * content that precedes them in the source, so tables inside them are
@@ -58,10 +56,7 @@ export async function buildBlocks(
 	const component = new Component();
 	component.load();
 
-	const widths = new Map<string, number[]>();
-	for (const declaration of declarations) {
-		widths.set(declarationKey(declaration.key, declaration.occurrence), declaration.widths);
-	}
+	const widths = createWidthLookup(declarations);
 
 	// Attached rather than detached: some renderers measure layout and produce
 	// nothing at all in an orphaned element.
@@ -75,7 +70,6 @@ export async function buildBlocks(
 		footnotes: [],
 		skipped: new Set(),
 		widths,
-		tableCounts: new Map(),
 		inFootnote: false,
 		nextListId: 0,
 	};
@@ -249,6 +243,13 @@ async function blockFromNode(
 	// inline runs, so an image inside one has nowhere to go.
 	if ((tag === 'UL' || tag === 'OL' || tag === 'TABLE') && el.querySelector('img')) {
 		ctx.skipped.add('Images inside lists and tables');
+	}
+
+	// A list item's reader collects inline runs, so a table inside one arrives
+	// as a run of cell text rather than a table. Said out loud, because it looks
+	// nothing like the note on screen.
+	if ((tag === 'UL' || tag === 'OL') && el.querySelector('table')) {
+		ctx.skipped.add('Tables inside list items (flattened to text)');
 	}
 
 	if (tag === 'UL' || tag === 'OL') {
@@ -427,19 +428,14 @@ function tableFrom(table: HTMLElement, ctx: Context, footnoteBase: number): Bloc
 			),
 		);
 
-	// Declared widths are found by header text plus how many tables have already
-	// carried that header — see table-widths.ts for why neither alone works.
-	// Footnote tables are skipped on both sides, so they cannot shift a count.
-	const key = headRow
-		? tableKey(Array.from(headRow.children).map((cell) => cell.textContent ?? ''))
-		: '';
-
-	let candidate: number[] | undefined;
-	if (!ctx.inFootnote) {
-		const occurrence = ctx.tableCounts.get(key) ?? 0;
-		ctx.tableCounts.set(key, occurrence + 1);
-		candidate = ctx.widths.get(declarationKey(key, occurrence));
-	}
+	// Pairing lives in table-widths.ts alongside the scanner that produced the
+	// declarations, so the two halves cannot drift. Footnote tables are ignored
+	// on both sides and so must not claim a turn here either.
+	const candidate = ctx.inFootnote
+		? undefined
+		: ctx.widths.take(
+				headRow ? Array.from(headRow.children).map((cell) => cell.textContent ?? '') : [],
+			);
 
 	// A declaration whose count does not match the table would leave a header
 	// cell at zero width and give the body rows a different number of cells
