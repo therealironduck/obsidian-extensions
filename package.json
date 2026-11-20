@@ -11,8 +11,12 @@
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint .",
+		"test": "bun run src/features/docx-export/table-widths.test.ts",
 		"format": "oxfmt",
 		"format:check": "oxfmt --check"
+	},
+	"dependencies": {
+		"fflate": "^0.8.3"
 	},
 	"devDependencies": {
 		"@codemirror/state": "^6.5.2",

@@ -3,6 +3,7 @@ import { registerPanels } from './features/panels';
 import { registerSlackCopy } from './features/slack-copy';
 import { registerUnlinkAtCursor } from './features/unlink-at-cursor';
 import { registerKeepFoldersCollapsed } from './features/keep-folders-collapsed';
+import { registerDocxExport } from './features/docx-export';
 import { loadSettings, type ExtensionsSettings } from './settings';
 import { ExtensionsSettingTab } from './ui/settings-tab';
 
@@ -23,6 +24,7 @@ export default class JordansExtensionsPlugin extends Plugin {
 		registerSlackCopy(this);
 		registerUnlinkAtCursor(this);
 		registerKeepFoldersCollapsed(this);
+		registerDocxExport(this);
 
 		this.addSettingTab(new ExtensionsSettingTab(this.app, this));
 	}

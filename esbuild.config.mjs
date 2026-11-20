@@ -30,7 +30,11 @@ const context = await esbuild.context({
 		'@lezer/common',
 		'@lezer/highlight',
 		'@lezer/lr',
+		// Both spellings: `builtinModules` lists bare names only, so without
+		// the prefixed forms an `import ... from 'node:fs/promises'` fails to
+		// resolve even though the very same module is already external.
 		...builtinModules,
+		...builtinModules.map((name) => `node:${name}`),
 	],
 	format: 'cjs',
 	target: 'es2021',

@@ -3,6 +3,10 @@ import {
 	DEFAULT_KEEP_FOLDERS_COLLAPSED_SETTINGS,
 	type KeepFoldersCollapsedSettings,
 } from './features/keep-folders-collapsed/settings';
+import {
+	DEFAULT_DOCX_EXPORT_SETTINGS,
+	type DocxExportSettings,
+} from './features/docx-export/settings';
 
 /**
  * Settings are namespaced per feature so two features can never collide over a
@@ -10,10 +14,12 @@ import {
  */
 export interface ExtensionsSettings {
 	keepFoldersCollapsed: KeepFoldersCollapsedSettings;
+	docxExport: DocxExportSettings;
 }
 
 export const DEFAULT_SETTINGS: ExtensionsSettings = {
 	keepFoldersCollapsed: DEFAULT_KEEP_FOLDERS_COLLAPSED_SETTINGS,
+	docxExport: DEFAULT_DOCX_EXPORT_SETTINGS,
 };
 
 /**
@@ -39,6 +45,10 @@ export async function loadSettings(plugin: Plugin): Promise<ExtensionsSettings> 
 		keepFoldersCollapsed: {
 			...DEFAULT_SETTINGS.keepFoldersCollapsed,
 			...stored.keepFoldersCollapsed,
+		},
+		docxExport: {
+			...DEFAULT_SETTINGS.docxExport,
+			...stored.docxExport,
 		},
 	};
 }
